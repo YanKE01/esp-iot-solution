@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -69,19 +69,6 @@ typedef struct {
 } sensor_light_t;
 
 static const light_sensor_impl_t light_sensor_implementations[] = {
-#ifdef CONFIG_SENSOR_LIGHT_INCLUDED_BH1750
-    {
-        .id = BH1750_ID,
-        .init = light_sensor_bh1750_init,
-        .deinit = light_sensor_bh1750_deinit,
-        .test = light_sensor_bh1750_test,
-        .acquire_light = light_sensor_bh1750_acquire_light,
-        .acquire_rgbw = null_acquire_rgbw_function,
-        .acquire_uv = null_acquire_uv_function,
-        .sleep = null_function,
-        .wakeup = null_function,
-    },
-#endif
 #ifdef CONFIG_SENSOR_LIGHT_INCLUDED_VEML6040
     {
         .id = VEML6040_ID,

@@ -1,0 +1,23 @@
+version: "0.1.0"
+description: Sensor Hub
+dependencies:
+  i2c_bus:
+    public: true
+    override_path: "../../i2c_bus"
+  sht3x:
+    public: true
+    override_path: "../humiture/sht3x"
+  lis2dh12:
+    public: true
+    override_path: "../imu/lis2dh12"
+  veml6040:
+    public: true
+    override_path: "../light_sensor/veml6040"
+  veml6075:
+    public: true
+    override_path: "../light_sensor/veml6075"
+  idf: ">=4.4"
+  cmake_utilities: "0.*"
+sbom:
+  supplier: 'Organization: Espressif Systems (Shanghai) CO LTD'
+  originator: 'Organization: Espressif Systems (Shanghai) CO LTD'

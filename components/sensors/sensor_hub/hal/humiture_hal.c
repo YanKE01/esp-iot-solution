@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,9 +14,6 @@
 
 #ifdef CONFIG_SENSOR_HUMITURE_INCLUDED_SHT3X
 #include "sht3x.h"
-#endif
-#ifdef CONFIG_SENSOR_HUMITURE_INCLUDED_HTS221
-#include "hts221.h"
 #endif
 
 #pragma GCC diagnostic push
@@ -71,18 +68,6 @@ static const humiture_impl_t humiture_implementations[] = {
         .acquire_temperature = humiture_sht3x_acquire_temperature,
         .sleep = null_function,
         .wakeup = null_function,
-    },
-#endif
-#ifdef CONFIG_SENSOR_HUMITURE_INCLUDED_HTS221
-    {
-        .id = HTS221_ID,
-        .init = humiture_hts221_init,
-        .deinit = humiture_hts221_deinit,
-        .test = humiture_hts221_test,
-        .acquire_humidity = humiture_hts221_acquire_humidity,
-        .acquire_temperature = humiture_hts221_acquire_temperature,
-        .sleep = humiture_hts221_sleep,
-        .wakeup = humiture_hts221_wakeup,
     },
 #endif
 };

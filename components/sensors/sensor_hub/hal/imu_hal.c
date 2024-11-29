@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,9 +12,6 @@
 #include "esp_timer.h"
 #include "hal/imu_hal.h"
 
-#ifdef CONFIG_SENSOR_IMU_INCLUDED_MPU6050
-#include "mpu6050.h"
-#endif
 #ifdef CONFIG_SENSOR_IMU_INCLUDED_LIS2DH12
 #include "lis2dh12.h"
 #endif
@@ -57,18 +54,6 @@ typedef struct {
 } sensor_imu_t;
 
 static const imu_impl_t imu_implementations[] = {
-#ifdef CONFIG_SENSOR_IMU_INCLUDED_MPU6050
-    {
-        .id = MPU6050_ID,
-        .init = imu_mpu6050_init,
-        .deinit = imu_mpu6050_deinit,
-        .test = imu_mpu6050_test,
-        .acquire_acce = imu_mpu6050_acquire_acce,
-        .acquire_gyro = imu_mpu6050_acquire_gyro,
-        .sleep = imu_mpu6050_sleep,
-        .wakeup = imu_mpu6050_wakeup,
-    },
-#endif
 #ifdef CONFIG_SENSOR_IMU_INCLUDED_LIS2DH12
     {
         .id = LIS2DH12_ID,

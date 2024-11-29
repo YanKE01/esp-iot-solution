@@ -474,7 +474,7 @@ esp_err_t iot_sensor_create(sensor_id_t sensor_id, const sensor_config_t *config
     }
 #endif
 
-    ESP_LOGI(TAG, "Sensor created, Task name = %s, Type = %s, Sensor ID = %d, Mode = %s, Min Delay = %d ms",
+    ESP_LOGI(TAG, "Sensor created, Task name = %s, Type = %s, Sensor ID = %d, Mode = %s, Min Delay = %ld ms",
              SENSOR_DEFAULT_TASK_NAME,
              SENSOR_TYPE_STRING[sensor->type],
              sensor->sensor_id,
