@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -305,6 +305,35 @@ esp_err_t humiture_sht3x_acquire_temperature(float *t)
 
     *t = 0;
     return ESP_FAIL;
+}
+
+esp_err_t humiture_sht3x_null_function(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+static humiture_impl_t sht3x_impl = {
+    .name = "sht3x",
+    .sensor_type = HUMITURE_ID,
+    .init = humiture_sht3x_init,
+    .deinit = humiture_sht3x_deinit,
+    .test = humiture_sht3x_test,
+    .acquire_humidity = humiture_sht3x_acquire_humidity,
+    .acquire_temperature = humiture_sht3x_acquire_temperature,
+    .sleep = humiture_sht3x_null_function,
+    .wakeup = humiture_sht3x_null_function,
+};
+
+void *sht3x_detect(sensor_info_t *sensor_info)
+{
+    sensor_info->snesor_type = HUMITURE_ID;
+    sensor_info->name = sht3x_impl.name;
+    return (void*)&sht3x_impl;
+}
+
+ESP_SENSOR_DETECT_FN(sht3x_detect)
+{
+    return sht3x_detect(sensor_info);
 }
 
 #endif

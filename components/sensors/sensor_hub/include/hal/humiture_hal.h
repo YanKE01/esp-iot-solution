@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,15 +12,17 @@
 
 typedef void *sensor_humiture_handle_t; /*!< humiture sensor handle*/
 
-/**
- * @brief humiture sensor id, used for humiture_create
- *
- */
-typedef enum {
-    SHT3X_ID = 0x01, /*!< sht3x humiture sensor id*/
-    HTS221_ID, /*!< hts221 humiture sensor id*/
-    HUMITURE_MAX_ID, /*!< max humiture sensor id*/
-} humiture_id_t;
+typedef struct {
+    const char* name;
+    sensor_type_t sensor_type;
+    esp_err_t (*init)(bus_handle_t);
+    esp_err_t (*deinit)(void);
+    esp_err_t (*test)(void);
+    esp_err_t (*acquire_humidity)(float *);
+    esp_err_t (*acquire_temperature)(float *);
+    esp_err_t (*sleep)(void);
+    esp_err_t (*wakeup)(void);
+} humiture_impl_t;
 
 #ifdef __cplusplus
 extern "C"
@@ -35,7 +37,7 @@ extern "C"
  * @param id id declared in humiture_id_t
  * @return sensor_humiture_handle_t return humiture sensor handle if succeed, return NULL if create failed.
  */
-sensor_humiture_handle_t humiture_create(bus_handle_t bus, int id);
+sensor_humiture_handle_t humiture_create(bus_handle_t bus, sensor_device_impl_t device_impl);
 
 /**
  * @brief Delete and release the sensor resource.

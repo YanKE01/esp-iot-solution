@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,29 +12,6 @@
 #include "esp_timer.h"
 #include "hal/humiture_hal.h"
 
-#ifdef CONFIG_SENSOR_HUMITURE_INCLUDED_SHT3X
-#include "sht3x.h"
-#endif
-#ifdef CONFIG_SENSOR_HUMITURE_INCLUDED_HTS221
-#include "hts221.h"
-#endif
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-function"
-static esp_err_t null_function(void)
-{
-    return ESP_ERR_NOT_SUPPORTED;
-}
-static esp_err_t null_acquire_humidity_function(float *h)
-{
-    return ESP_ERR_NOT_SUPPORTED;
-}
-static esp_err_t null_acquire_temperature_function(float *t)
-{
-    return ESP_ERR_NOT_SUPPORTED;
-}
-#pragma GCC diagnostic pop
-
 static const char *TAG = "HUMITURE|TEMPERATURE";
 
 #define SENSOR_CHECK(a, str, ret) if(!(a)) { \
@@ -43,84 +20,25 @@ static const char *TAG = "HUMITURE|TEMPERATURE";
     }
 
 typedef struct {
-    humiture_id_t id;
-    esp_err_t (*init)(bus_handle_t);
-    esp_err_t (*deinit)(void);
-    esp_err_t (*test)(void);
-    esp_err_t (*acquire_humidity)(float *);
-    esp_err_t (*acquire_temperature)(float *);
-    esp_err_t (*sleep)(void);
-    esp_err_t (*wakeup)(void);
-} humiture_impl_t;
-
-typedef struct {
-    humiture_id_t id;
     bus_handle_t bus;
     bool is_init;
     const humiture_impl_t *impl;
 } sensor_humiture_t;
 
-static const humiture_impl_t humiture_implementations[] = {
-#ifdef CONFIG_SENSOR_HUMITURE_INCLUDED_SHT3X
-    {
-        .id = SHT3X_ID,
-        .init = humiture_sht3x_init,
-        .deinit = humiture_sht3x_deinit,
-        .test = humiture_sht3x_test,
-        .acquire_humidity = humiture_sht3x_acquire_humidity,
-        .acquire_temperature = humiture_sht3x_acquire_temperature,
-        .sleep = null_function,
-        .wakeup = null_function,
-    },
-#endif
-#ifdef CONFIG_SENSOR_HUMITURE_INCLUDED_HTS221
-    {
-        .id = HTS221_ID,
-        .init = humiture_hts221_init,
-        .deinit = humiture_hts221_deinit,
-        .test = humiture_hts221_test,
-        .acquire_humidity = humiture_hts221_acquire_humidity,
-        .acquire_temperature = humiture_hts221_acquire_temperature,
-        .sleep = humiture_hts221_sleep,
-        .wakeup = humiture_hts221_wakeup,
-    },
-#endif
-};
-
-/****************************private functions*************************************/
-
-static const humiture_impl_t *find_implementation(int id)
-{
-    const humiture_impl_t *active_driver = NULL;
-    int count = sizeof(humiture_implementations) / sizeof(humiture_impl_t);
-
-    for (int i = 0; i < count; i++) {
-        if (humiture_implementations[i].id == id) {
-            active_driver = &humiture_implementations[i];
-            break;
-        }
-    }
-
-    return active_driver;
-}
-
 /****************************public functions*************************************/
 
-sensor_humiture_handle_t humiture_create(bus_handle_t bus, int id)
+sensor_humiture_handle_t humiture_create(bus_handle_t bus, sensor_device_impl_t device_impl)
 {
-    SENSOR_CHECK(bus != NULL, "i2c bus has not initialized", NULL);
-    const humiture_impl_t *sensor_impl = find_implementation(id);
-
-    if (sensor_impl == NULL) {
-        ESP_LOGE(TAG, "no driver founded, HUMITURE ID = %d", id);
+    // SENSOR_CHECK(bus != NULL, "i2c bus has not initialized", NULL);
+    if (device_impl == NULL) {
+        ESP_LOGE(TAG, "no driver founded, HUMITURE ID");
         return NULL;
     }
 
     sensor_humiture_t *p_sensor = (sensor_humiture_t *)malloc(sizeof(sensor_humiture_t));
     SENSOR_CHECK(p_sensor != NULL, "humiture sensor creat failed", NULL);
-    p_sensor->id = id;
     p_sensor->bus = bus;
-    p_sensor->impl = sensor_impl;
+    p_sensor->impl = (humiture_impl_t *)(device_impl);
     esp_err_t ret = p_sensor->impl->init(bus);
 
     if (ret != ESP_OK) {

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,6 +8,7 @@
 #define _IOT_SENSOR_TYPE_H_
 
 #include "esp_err.h"
+typedef void *sensor_device_impl_t;
 
 #define SENSOR_EVENT_ANY_ID ESP_EVENT_ANY_ID /*!< register handler for any event id */
 typedef void *sensor_driver_handle_t; /*!< hal level sensor driver handle */
@@ -159,29 +160,30 @@ typedef enum {
  *
  */
 typedef struct {
-    int64_t                  timestamp;     /*!< timestamp  */
-    uint8_t                  sensor_id;     /*!< sensor id  */
-    int32_t                  event_id;      /*!< reserved for future use */
-    uint32_t                 min_delay;     /*!<  minimum delay between two events, unit: ms */
+    int64_t                  timestamp;       /*!< timestamp  */
+    const char*              sensor_name;     /*!< sensor id  */
+    sensor_type_t            sensor_type;
+    int32_t                  event_id;        /*!< reserved for future use */
+    uint32_t                 min_delay;       /*!<  minimum delay between two events, unit: ms */
     union {
-        axis3_t              acce;          /*!< Accelerometer.       unit: G           */
-        axis3_t              gyro;          /*!< Gyroscope.           unit: dps         */
-        axis3_t              mag;           /*!< Magnetometer.        unit: Gauss       */
-        float                temperature;   /*!< Temperature.         unit: dCelsius     */
-        float                humidity;      /*!< Relative humidity.   unit: percentage   */
-        float                baro;          /*!< Pressure.            unit: pascal (Pa)  */
-        float                light;         /*!< Light.               unit: lux          */
-        rgbw_t               rgbw;          /*!< Color.               unit: lux          */
-        uv_t                 uv;            /*!< ultraviole           unit: lux          */
-        float                proximity;     /*!< Distance.            unit: centimeters  */
-        float                hr;            /*!< Heat rate.           unit: HZ           */
-        float                tvoc;          /*!< TVOC.                unit: permillage   */
-        float                noise;         /*!< Noise Loudness.      unit: HZ           */
-        float                step;          /*!< Step sensor.         unit: 1            */
-        float                force;         /*!< Force sensor.        unit: mN           */
-        float                current;       /*!< Current sensor       unit: mA           */
-        float                voltage;       /*!< Voltage sensor       unit: mV           */
-        float                data[4];       /*!< for general use */
+        axis3_t              acce;            /*!< Accelerometer.       unit: G           */
+        axis3_t              gyro;            /*!< Gyroscope.           unit: dps         */
+        axis3_t              mag;             /*!< Magnetometer.        unit: Gauss       */
+        float                temperature;     /*!< Temperature.         unit: dCelsius     */
+        float                humidity;        /*!< Relative humidity.   unit: percentage   */
+        float                baro;            /*!< Pressure.            unit: pascal (Pa)  */
+        float                light;           /*!< Light.               unit: lux          */
+        rgbw_t               rgbw;            /*!< Color.               unit: lux          */
+        uv_t                 uv;              /*!< ultraviole           unit: lux          */
+        float                proximity;       /*!< Distance.            unit: centimeters  */
+        float                hr;              /*!< Heat rate.           unit: HZ           */
+        float                tvoc;            /*!< TVOC.                unit: permillage   */
+        float                noise;           /*!< Noise Loudness.      unit: HZ           */
+        float                step;            /*!< Step sensor.         unit: 1            */
+        float                force;           /*!< Force sensor.        unit: mN           */
+        float                current;         /*!< Current sensor       unit: mA           */
+        float                voltage;         /*!< Voltage sensor       unit: mV           */
+        float                data[4];         /*!< for general use */
     };
 } sensor_data_t;
 
@@ -201,7 +203,7 @@ typedef struct {
  */
 typedef struct {
     sensor_type_t type; /*!< sensor type  */
-    sensor_driver_handle_t (*create)(bus_handle_t, int sensor_id); /*!< create a sensor  */
+    sensor_driver_handle_t (*create)(bus_handle_t, sensor_device_impl_t); /*!< create a sensor  */
     esp_err_t (*delete)(sensor_driver_handle_t *); /*!< delete a sensor  */
     esp_err_t (*acquire)(sensor_driver_handle_t, sensor_data_group_t *); /*!< acquire a group of sensor data  */
     esp_err_t (*control)(sensor_driver_handle_t, sensor_command_t cmd, void *args); /*!< modify the sensor configuration  */

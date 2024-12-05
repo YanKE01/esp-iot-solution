@@ -15,6 +15,7 @@ extern "C"
 #include "i2c_bus.h"
 #include "esp_log.h"
 #include "math.h"
+#include "iot_sensor_hub.h"
 
 typedef enum {
 

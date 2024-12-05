@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,16 +13,17 @@
 
 typedef void *sensor_light_handle_t; /*!< light sensor handle*/
 
-/**
- * @brief light sensor id, used for light_sensor_create
- *
- */
-typedef enum {
-    BH1750_ID = 0x01, /*!< BH1750 light sensor id*/
-    VEML6040_ID, /*!< VEML6040 light sensor id*/
-    VEML6075_ID, /*!< VEML6075 light sensor id*/
-    LIGHT_MAX_ID, /*!< max light sensor id*/
-} light_sensor_id_t;
+typedef struct {
+    const char* name;
+    esp_err_t (*init)(bus_handle_t);
+    esp_err_t (*deinit)(void);
+    esp_err_t (*test)(void);
+    esp_err_t (*acquire_light)(float* l);
+    esp_err_t (*acquire_rgbw)(float* r, float* g, float* b, float* w);
+    esp_err_t (*acquire_uv)(float* uv, float* uva, float* uvb);
+    esp_err_t (*sleep)(void);
+    esp_err_t (*wakeup)(void);
+} light_sensor_impl_t;
 
 #ifdef __cplusplus
 extern "C"
@@ -37,7 +38,7 @@ extern "C"
  * @param id id declared in light_sensor_id_t
  * @return sensor_light_handle_t return light sensor handle if succeed, return NULL if failed.
  */
-sensor_light_handle_t light_sensor_create(bus_handle_t bus, int id);
+sensor_light_handle_t light_sensor_create(bus_handle_t bus, sensor_device_impl_t device_impl);
 
 /**
  * @brief Delete and release the sensor resource.

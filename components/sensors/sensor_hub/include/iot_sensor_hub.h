@@ -40,35 +40,9 @@ typedef void (*sensor_event_handler_t)(void *event_handler_arg, sensor_event_bas
 extern const char *SENSOR_TYPE_STRING[];
 extern const char *SENSOR_MODE_STRING[];
 
-/**
- * @brief sensor id, used for iot_sensor_create
- *
- */
-typedef enum {
-#ifdef CONFIG_SENSOR_INCLUDED_HUMITURE
-    SENSOR_SHT3X_ID = (HUMITURE_ID << SENSOR_ID_OFFSET) | SHT3X_ID, /*!< sht3x sensor id*/
-    SENSOR_HTS221_ID = (HUMITURE_ID << SENSOR_ID_OFFSET) | HTS221_ID, /*!< hts221 sensor id*/
-#endif
-#ifdef CONFIG_SENSOR_INCLUDED_IMU
-    SENSOR_MPU6050_ID = ((IMU_ID << SENSOR_ID_OFFSET) | MPU6050_ID), /*!< mpu6050 sensor id*/
-    SENSOR_LIS2DH12_ID = ((IMU_ID << SENSOR_ID_OFFSET) | LIS2DH12_ID), /*!< lis2dh12 sensor id*/
-#endif
-#ifdef CONFIG_SENSOR_INCLUDED_LIGHT
-    SENSOR_BH1750_ID = (LIGHT_SENSOR_ID << SENSOR_ID_OFFSET) | BH1750_ID, /*!< bh1750 sensor id*/
-    SENSOR_VEML6040_ID = (LIGHT_SENSOR_ID << SENSOR_ID_OFFSET) | VEML6040_ID, /*!< veml6040 sensor id*/
-    SENSOR_VEML6075_ID = (LIGHT_SENSOR_ID << SENSOR_ID_OFFSET) | VEML6075_ID, /*!< veml6075 sensor id*/
-#endif
-} sensor_id_t;
-
-/**
- * @brief sensor information type
- *
- */
 typedef struct {
-    const char* name;  /*!< sensor name*/
-    const char* desc;  /*!< sensor descriptive message*/
-    sensor_id_t sensor_id;  /*!< sensor id*/
-    const uint8_t *addrs;  /*!< sensor address list*/
+    const char* name;
+    sensor_type_t snesor_type;
 } sensor_info_t;
 
 /**
@@ -83,6 +57,21 @@ typedef struct {
     int intr_pin;                               /*!< set interrupt pin */
     int intr_type;                              /*!< set interrupt type*/
 } sensor_config_t;
+
+typedef struct {
+    void* (*fn)(sensor_info_t *sensor_info);
+} esp_sensor_detect_fn_t;
+
+#define ESP_SENSOR_DETECT_FN(f, ...) \
+    static void* __VA_ARGS__ __esp_sensor_detect_fn_##f(sensor_info_t *sensor_info); \
+    static __attribute__((used)) _SECTION_ATTR_IMPL(".esp_sensor_detect_fn", __COUNTER__) \
+        esp_sensor_detect_fn_t esp_sensor_detect_fn_##f = { \
+            .fn = ( __esp_sensor_detect_fn_##f), \
+        }; \
+    static void* __esp_sensor_detect_fn_##f(sensor_info_t *sensor_info)
+
+extern esp_sensor_detect_fn_t __esp_sensor_detect_fn_array_start;
+extern esp_sensor_detect_fn_t __esp_sensor_detect_fn_array_end;
 
 #ifdef __cplusplus
 extern "C"
@@ -99,7 +88,9 @@ extern "C"
  *     - ESP_OK Success
  *     - ESP_FAIL Fail
  */
-esp_err_t iot_sensor_create(sensor_id_t sensor_id, const sensor_config_t *config, sensor_handle_t *p_sensor_handle);
+// esp_err_t iot_sensor_create(sensor_id_t sensor_id, const sensor_config_t *config, sensor_handle_t *p_sensor_handle);
+
+esp_err_t iot_sensor_create(const char* name, const sensor_config_t *config, sensor_handle_t *p_sensor_handle);
 
 /**
  * @brief start sensor acquisition, post data ready events when data acquired.

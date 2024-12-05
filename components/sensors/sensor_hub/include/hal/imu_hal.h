@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,15 +13,17 @@
 
 typedef void *sensor_imu_handle_t; /*!< imu sensor handle*/
 
-/**
- * @brief imu sensor id, used for imu_create
- *
- */
-typedef enum {
-    MPU6050_ID = 0x01, /*!< MPU6050 imu sensor id*/
-    LIS2DH12_ID, /*!< LIS2DH12 imu sensor id*/
-    IMU_MAX_ID, /*!< max imu sensor id*/
-} imu_id_t;
+typedef struct {
+    const char* name;
+    sensor_type_t sensor_type;
+    esp_err_t (*init)(bus_handle_t);
+    esp_err_t (*deinit)(void);
+    esp_err_t (*test)(void);
+    esp_err_t (*acquire_acce)(float *acce_x, float *acce_y, float *acce_z);
+    esp_err_t (*acquire_gyro)(float *gyro_x, float *gyro_y, float *gyro_z);
+    esp_err_t (*sleep)(void);
+    esp_err_t (*wakeup)(void);
+} imu_impl_t;
 
 #ifdef __cplusplus
 extern "C"
@@ -35,7 +37,7 @@ extern "C"
  * @param imu_id id declared in imu_id_t
  * @return sensor_imu_handle_t return imu sensor handle if succeed, NULL is failed.
  */
-sensor_imu_handle_t imu_create(bus_handle_t bus, int imu_id);
+sensor_imu_handle_t imu_create(bus_handle_t bus, sensor_device_impl_t device_impl);
 
 /**
  * @brief Delete and release the sensor resource.
