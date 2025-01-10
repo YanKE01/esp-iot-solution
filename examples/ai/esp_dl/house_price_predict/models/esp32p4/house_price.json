@@ -1,0 +1,360 @@
+{
+    "configs": {
+        "/network/network.0/Gemm": {
+            "onnx::Gemm_0": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "ACTIVATED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 235806717,
+                "dominator": 235806717
+            },
+            "network.0.weight": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "ACTIVATED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 4134695628,
+                "dominator": 4134695628
+            },
+            "network.0.bias": {
+                "bit_width": 32,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "PASSIVE",
+                "quant_min": -2147483648,
+                "quant_max": 2147483647,
+                "hash": 3685840479,
+                "dominator": 3685840479
+            },
+            "/network/network.1/Relu_output_0": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "ACTIVATED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 1020212048,
+                "dominator": 1020212048
+            }
+        },
+        "/network/network.3/Gemm": {
+            "/network/network.1/Relu_output_0": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "OVERLAPPED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 3981067475,
+                "dominator": 1020212048
+            },
+            "network.3.weight": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "ACTIVATED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 3238583370,
+                "dominator": 3238583370
+            },
+            "network.3.bias": {
+                "bit_width": 32,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "PASSIVE",
+                "quant_min": -2147483648,
+                "quant_max": 2147483647,
+                "hash": 2892870117,
+                "dominator": 2892870117
+            },
+            "/network/network.4/Relu_output_0": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "ACTIVATED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 836760622,
+                "dominator": 836760622
+            }
+        },
+        "/network/network.6/Gemm": {
+            "/network/network.4/Relu_output_0": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "OVERLAPPED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 3287087673,
+                "dominator": 836760622
+            },
+            "network.6.weight": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "ACTIVATED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 2508313624,
+                "dominator": 2508313624
+            },
+            "network.6.bias": {
+                "bit_width": 32,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "PASSIVE",
+                "quant_min": -2147483648,
+                "quant_max": 2147483647,
+                "hash": 943686267,
+                "dominator": 943686267
+            },
+            "/network/network.7/Relu_output_0": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "ACTIVATED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 3855137884,
+                "dominator": 3855137884
+            }
+        },
+        "/network/network.8/Gemm": {
+            "/network/network.7/Relu_output_0": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "OVERLAPPED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 3588807087,
+                "dominator": 3855137884
+            },
+            "network.8.weight": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "ACTIVATED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 3846933942,
+                "dominator": 3846933942
+            },
+            "network.8.bias": {
+                "bit_width": 32,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "PASSIVE",
+                "quant_min": -2147483648,
+                "quant_max": 2147483647,
+                "hash": 185224609,
+                "dominator": 185224609
+            },
+            "15": {
+                "bit_width": 8,
+                "policy": {
+                    "PER_TENSOR": true,
+                    "PER_CHANNEL": false,
+                    "LINEAR": true,
+                    "FLOATING": false,
+                    "SYMMETRICAL": true,
+                    "ASYMMETRICAL": false,
+                    "POWER_OF_2": true,
+                    "DYNAMIC": false
+                },
+                "state": "ACTIVATED",
+                "quant_min": -128,
+                "quant_max": 127,
+                "hash": 2223602144,
+                "dominator": 2223602144
+            }
+        }
+    },
+    "dispatchings": {
+        "/network/network.0/Gemm": "ESPDL_INT8",
+        "/network/network.3/Gemm": "ESPDL_INT8",
+        "/network/network.6/Gemm": "ESPDL_INT8",
+        "/network/network.8/Gemm": "ESPDL_INT8"
+    },
+    "values": {
+        "235806717": {
+            "scale": 0.0078125,
+            "zero_point": 0.0
+        },
+        "4134695628": {
+            "scale": 0.015625,
+            "zero_point": 0.0
+        },
+        "3685840479": {
+            "scale": 0.0001220703125,
+            "zero_point": 0.0
+        },
+        "1020212048": {
+            "scale": 0.001953125,
+            "zero_point": 0.0
+        },
+        "3238583370": {
+            "scale": 0.0078125,
+            "zero_point": 0.0
+        },
+        "2892870117": {
+            "scale": 1.52587890625e-05,
+            "zero_point": 0.0
+        },
+        "836760622": {
+            "scale": 0.0078125,
+            "zero_point": 0.0
+        },
+        "2508313624": {
+            "scale": 0.0078125,
+            "zero_point": 0.0
+        },
+        "943686267": {
+            "scale": 6.103515625e-05,
+            "zero_point": 0.0
+        },
+        "3855137884": {
+            "scale": 0.0625,
+            "zero_point": 0.0
+        },
+        "3846933942": {
+            "scale": 0.0078125,
+            "zero_point": 0.0
+        },
+        "185224609": {
+            "scale": 0.00048828125,
+            "zero_point": 0.0
+        },
+        "2223602144": {
+            "scale": 0.25,
+            "zero_point": 0.0
+        }
+    }
+}
