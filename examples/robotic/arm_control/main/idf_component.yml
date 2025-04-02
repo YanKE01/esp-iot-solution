@@ -1,0 +1,2 @@
+dependencies:
+  espressif/esp_wifi_remote: ^0.8.5
