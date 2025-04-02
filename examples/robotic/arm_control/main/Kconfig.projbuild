@@ -12,5 +12,9 @@ menu "Example Configuration"
         help
             WiFi password (WPA or WPA2) for the example to use.
 
+    config EXAMPLE_CAM_BUF_COUNT
+        int "Camera Buffer Count"
+        default 2
+        range 2 3
 
 endmenu
