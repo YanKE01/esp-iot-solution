@@ -1,7 +1,16 @@
 dependencies:
-  espressif/esp_wifi_remote: ^0.8.5
-  espressif/esp_lcd_ek79007: =1.0.2
+  # espressif/esp_wifi_remote: "*"
+  # espressif/esp_hosted: "*"
   espressif/usb_host_uvc:
     git: https://github.com/espressif/esp-usb
     path: host/class/uvc/usb_host_uvc
     version: "release/usb_host_uvc_v2.2.0"
+  espressif/esp32_p4_function_ev_board: ^5.0.0
+  lvgl/lvgl:
+    version: "8.3.*"
+    public: true
+  protocol_examples_common:
+    path: ${IDF_PATH}/examples/common_components/protocol_examples_common
+  espressif/mdns: "^1.0.3"
+  esp_wifi_remote:
+    version: "*"

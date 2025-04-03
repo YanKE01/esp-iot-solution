@@ -15,7 +15,7 @@ static constexpr const char *TAG = "QwenVL";
 QwenVL::QwenVL()
 {
     m_config.method = HTTP_METHOD_POST;
-    m_config.buffer_size = 10 * 1024;
+    m_config.buffer_size = 20 * 1024;
     m_config.url = qwen_vl_url;
     m_config.timeout_ms = 25000;
     m_config.event_handler = qwen_event_handler;
@@ -24,6 +24,8 @@ QwenVL::QwenVL()
 
 esp_err_t QwenVL::qwen_event_handler(esp_http_client_event_t* evt)
 {
+    QwenVL* self = static_cast<QwenVL*>(evt->user_data);
+
     if (evt->event_id == HTTP_EVENT_ON_DATA) {
         ESP_LOGI(TAG, "%.*s", evt->data_len, (char *)evt->data);
     }
@@ -60,7 +62,7 @@ void QwenVL::run(const char* jpg, size_t jpg_size)
                 },
                 {
                     "type": "text",
-                    "text": "Detect the objects on the white sheet of paper in the image, identify their categories, and return their locations in the form of coordinates. The output format should be like {\"objects\": [{\"category\": \"object_category\", \"bbox_2d\": [x1, y1, x2, y2]}]}"
+                    "text": "Detect the objects in the image, identify their categories, and return their locations in the form of coordinates. The output format should be like {\"objects\": [{\"category\": \"object_category\", \"bbox_2d\": [x1, y1, x2, y2]}]}"
                 }
             ]
         }
