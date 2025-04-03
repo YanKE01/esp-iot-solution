@@ -1,3 +1,7 @@
 dependencies:
   espressif/esp_wifi_remote: ^0.8.5
   espressif/esp_lcd_ek79007: =1.0.2
+  espressif/usb_host_uvc:
+    git: https://github.com/espressif/esp-usb
+    path: host/class/uvc/usb_host_uvc
+    version: "release/usb_host_uvc_v2.2.0"
