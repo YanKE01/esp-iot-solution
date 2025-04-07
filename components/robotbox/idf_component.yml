@@ -1,6 +1,0 @@
-version: "0.1.0"
-
-dependencies:
-  idf: ">=4.0"
-  espressif/eigen: "^3.4.0~2"
-  cmake_utilities: "0.*"

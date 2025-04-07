@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "mbedtls/base64.h"
 #include "app_qwen_vl.hpp"
+#include "cJSON.h"
 
 static constexpr const char *TAG = "QwenVL";
 
@@ -27,7 +28,22 @@ esp_err_t QwenVL::qwen_event_handler(esp_http_client_event_t* evt)
     QwenVL* self = static_cast<QwenVL*>(evt->user_data);
 
     if (evt->event_id == HTTP_EVENT_ON_DATA) {
-        ESP_LOGI(TAG, "%.*s", evt->data_len, (char *)evt->data);
+        ESP_LOGD(TAG, "%.*s", evt->data_len, (char *)evt->data);
+        qwen_response_t msg;
+        msg.len = evt->data_len;
+        msg.data = (char*)heap_caps_calloc(1, msg.len + 1, MALLOC_CAP_SPIRAM);
+
+        if (!msg.data) {
+            ESP_LOGE(TAG, "Failed to malloc for response data");
+            return ESP_ERR_NO_MEM;
+        }
+
+        memcpy(msg.data, evt->data, msg.len);
+        msg.data[msg.len] = '\0';
+
+        if (self->m_response_queue != nullptr) {
+            xQueueSend(self->m_response_queue, &msg, portMAX_DELAY);
+        }
     }
     return ESP_OK;
 }
@@ -62,7 +78,7 @@ void QwenVL::run(const char* jpg, size_t jpg_size)
                 },
                 {
                     "type": "text",
-                    "text": "Detect the objects in the image, identify their categories, and return their locations in the form of coordinates. The output format should be like {\"objects\": [{\"category\": \"object_category\", \"bbox_2d\": [x1, y1, x2, y2]}]}"
+                    "text": "Detect the main objects on the white paper in the image, identify their categories with very short names (1-2 words maximum), and return their locations in the form of coordinates. Return ONLY a raw JSON object without any markdown formatting, code blocks, or additional text. The JSON should be in this exact format: {\"objects\": [{\"category\": \"object_category\", \"bbox_2d\": [x1, y1, x2, y2]}]}."
                 }
             ]
         }
@@ -84,4 +100,157 @@ void QwenVL::run(const char* jpg, size_t jpg_size)
     esp_http_client_cleanup(m_client);
 
     free(m_img_base64_buf);
+}
+
+void QwenVL::set_response_queue(QueueHandle_t queue)
+{
+    m_response_queue = queue;
+}
+
+ObjectDetectionResult QwenVL::parse_object_detection_json(const char* json_str)
+{
+    ObjectDetectionResult result;
+
+    // Parse the JSON response
+    cJSON *root = cJSON_Parse(json_str);
+    if (root != NULL) {
+        // Navigate to the content field which contains the actual JSON with object detection results
+        cJSON *choices = cJSON_GetObjectItem(root, "choices");
+        if (choices != NULL && cJSON_IsArray(choices) && cJSON_GetArraySize(choices) > 0) {
+            cJSON *first_choice = cJSON_GetArrayItem(choices, 0);
+            if (first_choice != NULL) {
+                cJSON *message = cJSON_GetObjectItem(first_choice, "message");
+                if (message != NULL) {
+                    cJSON *content = cJSON_GetObjectItem(message, "content");
+                    if (content != NULL && cJSON_IsString(content)) {
+                        const char *content_str = cJSON_GetStringValue(content);
+
+                        // Check if the content contains ```json and ```
+                        if (strstr(content_str, "```json") != NULL) {
+                            // Find the start of the actual JSON (after ```json)
+                            const char *json_start = strstr(content_str, "```json") + 7;
+                            // Find the end of the JSON (before the closing ```)
+                            const char *json_end = strstr(json_start, "```");
+
+                            if (json_start != NULL && json_end != NULL) {
+                                // Create a temporary buffer for the JSON
+                                size_t json_len = json_end - json_start;
+                                char *json_buffer = (char *)malloc(json_len + 1);
+                                if (json_buffer != NULL) {
+                                    // Copy the JSON part to the buffer
+                                    strncpy(json_buffer, json_start, json_len);
+                                    json_buffer[json_len] = '\0';
+
+                                    // Parse the JSON
+                                    cJSON *detection_json = cJSON_Parse(json_buffer);
+                                    if (detection_json != NULL) {
+                                        cJSON *objects = cJSON_GetObjectItem(detection_json, "objects");
+                                        if (objects != NULL && cJSON_IsArray(objects)) {
+                                            int obj_count = cJSON_GetArraySize(objects);
+                                            ESP_LOGI(TAG, "Found %d objects in the image", obj_count);
+
+                                            // Process each detected object
+                                            for (int i = 0; i < obj_count; i++) {
+                                                cJSON *obj = cJSON_GetArrayItem(objects, i);
+                                                if (obj != NULL) {
+                                                    cJSON *category = cJSON_GetObjectItem(obj, "category");
+                                                    cJSON *bbox = cJSON_GetObjectItem(obj, "bbox_2d");
+
+                                                    if (category != NULL && cJSON_IsString(category) &&
+                                                            bbox != NULL && cJSON_IsArray(bbox) && cJSON_GetArraySize(bbox) == 4) {
+
+                                                        // Extract bounding box coordinates
+                                                        int x1 = cJSON_GetArrayItem(bbox, 0)->valueint;
+                                                        int y1 = cJSON_GetArrayItem(bbox, 1)->valueint;
+                                                        int x2 = cJSON_GetArrayItem(bbox, 2)->valueint;
+                                                        int y2 = cJSON_GetArrayItem(bbox, 3)->valueint;
+
+                                                        // Create a BoundingBox object
+                                                        BoundingBox box = {x1, y1, x2, y2};
+
+                                                        // Store the object and its coordinates in the map
+                                                        std::string category_str = cJSON_GetStringValue(category);
+                                                        result.objects[category_str] = box;
+                                                    }
+                                                }
+                                            }
+
+                                            // Print all objects in the map
+                                            ESP_LOGI(TAG, "All detected objects in map:");
+                                            for (const auto &pair : result.objects) {
+                                                ESP_LOGI(TAG, "  %s: [%d, %d, %d, %d]",
+                                                         pair.first.c_str(),
+                                                         pair.second.x1, pair.second.y1,
+                                                         pair.second.x2, pair.second.y2);
+                                            }
+                                        }
+                                        cJSON_Delete(detection_json);
+                                    } else {
+                                        ESP_LOGE(TAG, "Failed to parse detection JSON");
+                                    }
+                                    free(json_buffer);
+                                }
+                            } else {
+                                ESP_LOGE(TAG, "Could not find JSON markers in content");
+                            }
+                        } else {
+                            // Try to parse the content directly if it doesn't have the markers
+                            cJSON *detection_json = cJSON_Parse(content_str);
+                            if (detection_json != NULL) {
+                                // Process the JSON as before
+                                cJSON *objects = cJSON_GetObjectItem(detection_json, "objects");
+                                if (objects != NULL && cJSON_IsArray(objects)) {
+                                    int obj_count = cJSON_GetArraySize(objects);
+                                    ESP_LOGI(TAG, "Found %d objects in the image", obj_count);
+
+                                    // Process each detected object
+                                    for (int i = 0; i < obj_count; i++) {
+                                        cJSON *obj = cJSON_GetArrayItem(objects, i);
+                                        if (obj != NULL) {
+                                            cJSON *category = cJSON_GetObjectItem(obj, "category");
+                                            cJSON *bbox = cJSON_GetObjectItem(obj, "bbox_2d");
+
+                                            if (category != NULL && cJSON_IsString(category) &&
+                                                    bbox != NULL && cJSON_IsArray(bbox) && cJSON_GetArraySize(bbox) == 4) {
+
+                                                // Extract bounding box coordinates
+                                                int x1 = cJSON_GetArrayItem(bbox, 0)->valueint;
+                                                int y1 = cJSON_GetArrayItem(bbox, 1)->valueint;
+                                                int x2 = cJSON_GetArrayItem(bbox, 2)->valueint;
+                                                int y2 = cJSON_GetArrayItem(bbox, 3)->valueint;
+
+                                                // Create a BoundingBox object
+                                                BoundingBox box = {x1, y1, x2, y2};
+
+                                                // Store the object and its coordinates in the map
+                                                std::string category_str = cJSON_GetStringValue(category);
+                                                result.objects[category_str] = box;
+                                            }
+                                        }
+                                    }
+
+                                    // Print all objects in the map
+                                    ESP_LOGI(TAG, "All detected objects in map:");
+                                    for (const auto &pair : result.objects) {
+                                        ESP_LOGI(TAG, "  %s: [%d, %d, %d, %d]",
+                                                 pair.first.c_str(),
+                                                 pair.second.x1, pair.second.y1,
+                                                 pair.second.x2, pair.second.y2);
+                                    }
+                                }
+                                cJSON_Delete(detection_json);
+                            } else {
+                                ESP_LOGE(TAG, "Failed to parse content as JSON");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        cJSON_Delete(root);
+    } else {
+        ESP_LOGE(TAG, "Failed to parse JSON response");
+    }
+
+    return result;
 }
