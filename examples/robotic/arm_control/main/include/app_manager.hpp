@@ -13,6 +13,7 @@
 #include "app_qwen_vl.hpp"
 #include "driver/jpeg_decode.h"
 #include "lvgl.h"
+#include "servo.hpp"
 
 // Define a structure to store click coordinates
 struct ClickCoordinates {
@@ -22,11 +23,18 @@ struct ClickCoordinates {
 
 class Manager {
 public:
-    Manager();
+    Manager(Servo* servo = nullptr);
     ~Manager();
     void run();
     enum class manager_event_t { RECOGNIZE = 1 << 0, CLEAR = 1 << 1};
     enum class manager_status_t { NORMAL = 0, TUNING = 1};
+
+    // Log method to display messages in the UI
+    void log(const char* format, ...);
+
+    // Clear the log textarea
+    void clear_log();
+
 private:
     static void lcd_refresh_task(void *arg);
     static void event_handle_task(void *arg);
@@ -49,6 +57,18 @@ private:
 
     // Draw container for UI elements
     lv_obj_t *m_draw_container = nullptr;
+
+    // Servo pointer
+    Servo* m_servo;
+
+    // Log buffer
+    static const int LOG_BUFFER_SIZE = 1024;
+    char m_log_buffer[LOG_BUFFER_SIZE];
+
+    // Combined log buffer for storing all log messages
+    static const int COMBINED_LOG_BUFFER_SIZE = 4096;
+    char m_combined_log_buffer[COMBINED_LOG_BUFFER_SIZE];
+    int m_combined_log_length = 0;
 };
 
 extern Manager* g_manager_instance;

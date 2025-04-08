@@ -9,12 +9,15 @@
 #include "bsp/esp-bsp.h"
 #include "app_manager.hpp"
 #include "cJSON.h"
+#include <stdarg.h>
+#include <string.h>
 
 static const char* TAG = "app_manager";
 TaskHandle_t Manager::m_task_handle = nullptr;
 Manager* g_manager_instance = nullptr;
 
-Manager::Manager()
+Manager::Manager(Servo* servo)
+    : m_servo(servo)
 {
     m_qwen_vl = std::make_unique<QwenVL>();
     m_response_queue = xQueueCreate(5, sizeof(qwen_response_t));
@@ -52,6 +55,9 @@ Manager::Manager()
     lv_obj_add_flag(m_draw_container, LV_OBJ_FLAG_CLICKABLE);     // Make it clickable
 
     g_manager_instance = this;
+
+    // Initialize log
+    log("Manager initialized\n");
 }
 
 Manager::~Manager()
@@ -83,14 +89,17 @@ void Manager::draw_container_click_handler(lv_event_t *event)
     lv_coord_t x = point.x - lv_obj_get_x(obj);
     lv_coord_t y = point.y - lv_obj_get_y(obj);
 
-    ESP_LOGI(TAG, "Draw container clicked at coordinates: x=%d, y=%d (relative to container)", x, y);
-    ESP_LOGI(TAG, "Absolute screen coordinates: x=%d, y=%d", point.x, point.y);
-
     Manager *self = (Manager *)lv_event_get_user_data(event);
     self->m_click_coordinates_index = self->m_click_coordinates_index % 4;
 
     self->m_click_coordinates[self->m_click_coordinates_index].x = x;
     self->m_click_coordinates[self->m_click_coordinates_index].y = y;
+
+    // Log the click coordinates
+    self->log("Click point #%d: (%d, %d)\n",
+              self->m_click_coordinates_index + 1,
+              x, y);
+
     self->m_click_coordinates_index++;
 }
 
@@ -212,7 +221,7 @@ void Manager::event_handle_task(void *arg)
         // Check for messages in the response queue first
         qwen_response_t response;
         if (xQueueReceive(self->m_response_queue, &response, 0) == pdTRUE) {
-            ESP_LOGI(TAG, "Received response from QwenVL: %s", response.data);
+            ESP_LOGI(TAG, "Received response from QwenVL: %s\n", response.data);
 
             self->m_detected_objects.clear();
 
@@ -221,6 +230,20 @@ void Manager::event_handle_task(void *arg)
 
             // Update the detected objects map with the parsed results
             self->m_detected_objects = result.objects;
+
+            // Log detected objects
+            if (!self->m_detected_objects.empty()) {
+                self->log("Detected objects:\n");
+                for (const auto &pair : self->m_detected_objects) {
+                    const std::string &category = pair.first;
+                    const BoundingBox &box = pair.second;
+                    self->log("- %s: (%d,%d,%d,%d)\n",
+                              category.c_str(),
+                              box.x1, box.y1, box.x2, box.y2);
+                }
+            } else {
+                self->log("No objects detected\n");
+            }
 
             free(response.data);
         }
@@ -231,15 +254,19 @@ void Manager::event_handle_task(void *arg)
             if (event & static_cast<uint32_t>(manager_event_t::RECOGNIZE)) {
                 uvc_host_frame_t *frame = app_uvc_get_frame_by_index(0);
                 if (frame != NULL) {
+                    self->log("Recognizing objects...\n");
                     self->m_qwen_vl->run((const char*)(frame->data), frame->data_len);
                     app_uvc_return_frame_by_index(0, frame);
+                } else {
+                    self->log("Error: No frame available for recognition\n");
                 }
             } else if (event & static_cast<uint32_t>(manager_event_t::CLEAR)) {
                 // Clear the detected objects map
                 self->m_detected_objects.clear();
                 self->m_click_coordinates.clear();
                 self->m_click_coordinates_index = 0;
-                ESP_LOGI(TAG, "Cleared all detected objects");
+                self->log("Cleared all detected objects and click coordinates\n");
+                self->clear_log();
             }
         }
     }
@@ -271,4 +298,42 @@ void Manager::run()
         ESP_LOGE(TAG, "failed to create event_handle_task");
         return;
     }
+}
+
+void Manager::log(const char* format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    vsnprintf(m_log_buffer, LOG_BUFFER_SIZE, format, args);
+    va_end(args);
+
+    ESP_LOGI(TAG, "%s", m_log_buffer);
+
+    // Update the log text area in the UI
+    bsp_display_lock(0);
+
+    // Check if adding the new log message would exceed the buffer size
+    int new_log_length = strlen(m_log_buffer);
+    if (m_combined_log_length + new_log_length >= COMBINED_LOG_BUFFER_SIZE - 1) {
+        // Buffer would overflow, clear it first
+        clear_log();
+    }
+
+    // Append the new log message to the combined buffer
+    strcat(m_combined_log_buffer, m_log_buffer);
+    m_combined_log_length += new_log_length;
+
+    // Update the textarea with the combined log
+    lv_textarea_set_text(ui_LogTextArea, m_combined_log_buffer);
+
+    bsp_display_unlock();
+}
+
+void Manager::clear_log()
+{
+    bsp_display_lock(0);
+    memset(m_combined_log_buffer, 0, COMBINED_LOG_BUFFER_SIZE);
+    m_combined_log_length = 0;
+    lv_textarea_set_text(ui_LogTextArea, "");
+    bsp_display_unlock();
 }
