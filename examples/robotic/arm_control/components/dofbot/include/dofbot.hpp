@@ -17,12 +17,18 @@ struct ServoConfig {
     bool reversed;
 };
 
-class Servo {
+class Dofbot {
 public:
-    Servo(uart_port_t port, int tx_pin, int rx_pin, std::map<int, ServoConfig> servo_config, int baudrate = 115200);
+    Dofbot(uart_port_t port, int tx_pin, int rx_pin, std::map<int, ServoConfig> servo_config, int baudrate = 115200);
     void write(uint8_t* data, size_t size);
     esp_err_t control(uint8_t id, int angle, uint16_t time);
     esp_err_t control(std::vector<int> angle, uint16_t time);
+    esp_err_t move(double x, double y, double z);
+    double sin_deg(double degree);
+    double cos_deg(double degree);
+    double joint_deg_convert(int joint_id, double degree);
+    bool joint_deg_is_valid(int joint_id, double degree);
+    bool forward_kinematics(double theta1, double theta2, double theta3, double theta4, double *x, double *y, double *z);
 private:
     static void rx_task(void* arg);
     uart_port_t m_port;

@@ -13,7 +13,7 @@
 #include "app_qwen_vl.hpp"
 #include "driver/jpeg_decode.h"
 #include "lvgl.h"
-#include "servo.hpp"
+#include "dofbot.hpp"
 
 // Define a structure to store click coordinates
 struct ClickCoordinates {
@@ -23,7 +23,7 @@ struct ClickCoordinates {
 
 class Manager {
 public:
-    Manager(Servo* servo = nullptr);
+    Manager(Dofbot* dofbot = nullptr);
     ~Manager();
     void run();
     enum class manager_event_t { RECOGNIZE = 1 << 0, CLEAR = 1 << 1};
@@ -58,8 +58,8 @@ private:
     // Draw container for UI elements
     lv_obj_t *m_draw_container = nullptr;
 
-    // Servo pointer
-    Servo* m_servo;
+    // Dofbot pointer
+    Dofbot* m_dofbot;
 
     // Log buffer
     static const int LOG_BUFFER_SIZE = 1024;

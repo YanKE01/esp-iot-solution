@@ -16,8 +16,8 @@ static const char* TAG = "app_manager";
 TaskHandle_t Manager::m_task_handle = nullptr;
 Manager* g_manager_instance = nullptr;
 
-Manager::Manager(Servo* servo)
-    : m_servo(servo)
+Manager::Manager(Dofbot* dofbot)
+    : m_dofbot(dofbot)
 {
     m_qwen_vl = std::make_unique<QwenVL>();
     m_response_queue = xQueueCreate(5, sizeof(qwen_response_t));

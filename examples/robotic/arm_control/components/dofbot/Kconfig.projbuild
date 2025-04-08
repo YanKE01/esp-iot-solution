@@ -1,0 +1,27 @@
+menu "Robotic Arm Options"
+
+    config JOINT2_GROUND_DISTANCE_MM
+        int "Distance from ground to Joint 2 (mm)"
+        default 121
+        help
+        Vertical distance from the ground plane to Joint 2 of the robot arm, in millimeters.
+
+    config JOINT2_TO_JOINT3_DISTANCE_MM
+        int "Distance from Joint 2 to Joint 3 (mm)"
+        default 82
+        help
+        Horizontal or link distance between Joint 2 and Joint 3 of the robot arm, in millimeters.
+
+    config JOINT3_TO_JOINT4_DISTANCE_MM
+        int "Distance from Joint 3 to Joint 4 (mm)"
+        default 82
+        help
+        Link distance between Joint 3 and Joint 4 of the robot arm, in millimeters.
+
+    config JOINT4_TO_END_EFFECTOR_DISTANCE_MM
+        int "Distance from Joint 4 to End Effector (mm)"
+        default 185
+        help
+        Distance from Joint 4 to the end effector (tool center point) of the robot arm, in millimeters.
+
+endmenu

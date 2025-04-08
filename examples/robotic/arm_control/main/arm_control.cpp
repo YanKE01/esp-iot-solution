@@ -14,14 +14,14 @@
 #include "protocol_examples_common.h"
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
-#include "servo.hpp"
+#include "dofbot.hpp"
 #include "app_spiffs.hpp"
 #include "app_qwen_vl.hpp"
 #include "app_cam.h"
 #include "app_manager.hpp"
 #include "ui.h"
 
-Servo *servo = nullptr;
+Dofbot *dofbot = nullptr;
 
 extern "C" void app_main(void)
 {
@@ -42,7 +42,7 @@ extern "C" void app_main(void)
         {5, {380, 3700, 0, 270, false}},
         {6, {900, 3100, 0, 180, false}},
     };
-    servo = new Servo(UART_NUM_1, 24, 25, servo_configs);
+    dofbot = new Dofbot(UART_NUM_1, 27, 26, servo_configs);
 
     app_uvc_init();
     vTaskDelay(2000 / portTICK_PERIOD_MS);
@@ -55,6 +55,6 @@ extern "C" void app_main(void)
     ui_init();
     bsp_display_unlock();
 
-    auto manager = new Manager(servo);
+    auto manager = new Manager(dofbot);
     manager->run();
 }

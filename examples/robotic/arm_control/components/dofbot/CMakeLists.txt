@@ -5,7 +5,7 @@ idf_component_register(
 )
 
 set_source_files_properties(
-    "servo.cpp"
+    "dofbot.cpp"
     PROPERTIES
     COMPILE_OPTIONS
         "-Wno-missing-field-initializers"
