@@ -67,6 +67,7 @@ ignore:  # You can also select ignoring files here
     - 'examples/hmi/lvgl_freetype/main/assets/font_Kaiti30.c'
     - 'examples/hmi/lvgl_thermostat/**/*'
     - 'examples/hmi/lvgl_wificonfig/**/*'
+    - 'examples/robot/ragtime_panthera/components/**/*'
     - 'examples/screen/main/img_array.h'
     - 'examples/keyboard/hid_device/**/*'
     - 'examples/usb/device/usb_extend_screen/main/usb_device/**/*'

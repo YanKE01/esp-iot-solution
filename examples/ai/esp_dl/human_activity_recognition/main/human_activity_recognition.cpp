@@ -19,6 +19,7 @@ DataPreprocessor::DataPreprocessor(dl::Model *model,
     auto inputs = m_model->get_inputs();
     if (!inputs.empty()) {
         dl::TensorBase* input_tensor = inputs.begin()->second;
+        printf("exp: %d\n", input_tensor->exponent);
         m_input_scale = 1.0f / DL_SCALE(input_tensor->exponent);
     }
 }
