@@ -345,6 +345,10 @@ esp_err_t iot_sensor_create(const char *sensor_name, const sensor_config_t *conf
         return ESP_ERR_NOT_SUPPORTED;
     }
 
+    if (config_copy.type == CUSTOM_ID && config_copy.init_cmds == NULL) {
+        ESP_LOGE(TAG, "Invaild sensor init cmds");
+    }
+
     // Set Sensor Abstraction Layer Information
     _iot_sensor_t *sensor = (_iot_sensor_t *)calloc(1, sizeof(_iot_sensor_t));
     SENSOR_CHECK(sensor != NULL, "calloc node failed", ESP_ERR_NO_MEM);
@@ -355,25 +359,35 @@ esp_err_t iot_sensor_create(const char *sensor_name, const sensor_config_t *conf
     sensor->min_delay = config_copy.min_delay;
     sensor->intr_pin = config_copy.intr_pin;
     sensor->mode = config_copy.mode;
-    sensor->impl = sensor_find_impl(sensor->type);
-    sprintf(sensor->event_base, "%s_%x", sensor_name, config->addr);
-    SENSOR_CHECK_GOTO(sensor->impl != NULL && sensor->event_base != NULL, "no driver found !!", cleanup_sensor);
 
-    // create a new sensor
-    sensor->driver_handle = sensor->impl->create(sensor->bus, sensor->name, sensor->addr);
-    SENSOR_CHECK_GOTO(sensor->driver_handle != NULL, "sensor create failed", cleanup_sensor);
-    // config sensor work mode, not supported case will be skipped
-    ret = sensor->impl->control(sensor->driver_handle, COMMAND_SET_MODE, (void *)(config_copy.mode));
-    SENSOR_CHECK_GOTO(ESP_OK == ret || ESP_ERR_NOT_SUPPORTED == ret, "set sensor mode failed !!", cleanup_sensor);
-    /*config sensor measuring range, not supported case will be skipped*/
-    ret = sensor->impl->control(sensor->driver_handle, COMMAND_SET_RANGE, (void *)(config_copy.range));
-    SENSOR_CHECK_GOTO(ESP_OK == ret || ESP_ERR_NOT_SUPPORTED == ret, "set sensor range failed !!", cleanup_sensor);
-    /*config sensor work mode, not supported case will be skipped*/
-    ret = sensor->impl->control(sensor->driver_handle, COMMAND_SET_ODR, (void *)(config_copy.min_delay));
-    SENSOR_CHECK_GOTO(ESP_OK == ret || ESP_ERR_NOT_SUPPORTED == ret, "set sensor odr failed !!", cleanup_sensor);
-    /*test if sensor is valid, can not be skipped*/
-    ret = sensor->impl->control(sensor->driver_handle, COMMAND_SELF_TEST, NULL);
-    SENSOR_CHECK_GOTO(ret == ESP_OK, "sensor test failed !!", cleanup_sensor);
+    sprintf(sensor->event_base, "%s_%x", sensor_name, config->addr);
+
+    if (sensor->type == CUSTOM_ID) {
+        // init custom sensor
+        for (int i = 0; i < config_copy.init_cmds_num; i++) {
+            vTaskDelay(config_copy.init_cmds[i].delay_ms / portTICK_RATE_MS);
+        }
+
+    } else {
+        sensor->impl = sensor_find_impl(sensor->type);
+        SENSOR_CHECK_GOTO(sensor->impl != NULL && sensor->event_base != NULL, "no driver found !!", cleanup_sensor);
+
+        // create a new sensor
+        sensor->driver_handle = sensor->impl->create(sensor->bus, sensor->name, sensor->addr);
+        SENSOR_CHECK_GOTO(sensor->driver_handle != NULL, "sensor create failed", cleanup_sensor);
+        // config sensor work mode, not supported case will be skipped
+        ret = sensor->impl->control(sensor->driver_handle, COMMAND_SET_MODE, (void *)(config_copy.mode));
+        SENSOR_CHECK_GOTO(ESP_OK == ret || ESP_ERR_NOT_SUPPORTED == ret, "set sensor mode failed !!", cleanup_sensor);
+        /*config sensor measuring range, not supported case will be skipped*/
+        ret = sensor->impl->control(sensor->driver_handle, COMMAND_SET_RANGE, (void *)(config_copy.range));
+        SENSOR_CHECK_GOTO(ESP_OK == ret || ESP_ERR_NOT_SUPPORTED == ret, "set sensor range failed !!", cleanup_sensor);
+        /*config sensor work mode, not supported case will be skipped*/
+        ret = sensor->impl->control(sensor->driver_handle, COMMAND_SET_ODR, (void *)(config_copy.min_delay));
+        SENSOR_CHECK_GOTO(ESP_OK == ret || ESP_ERR_NOT_SUPPORTED == ret, "set sensor odr failed !!", cleanup_sensor);
+        /*test if sensor is valid, can not be skipped*/
+        ret = sensor->impl->control(sensor->driver_handle, COMMAND_SELF_TEST, NULL);
+        SENSOR_CHECK_GOTO(ret == ESP_OK, "sensor test failed !!", cleanup_sensor);
+    }
 
     /*create a default event group if have not created*/
     if (s_event_group == NULL) {

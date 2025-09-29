@@ -42,6 +42,14 @@ typedef struct {
     sensor_type_t sensor_type; /*!< sensor type */
 } sensor_info_t;
 
+
+typedef struct {
+    int reg_addr;
+    const void* data;
+    size_t data_bytes;
+    unsigned int delay_ms;
+} sensor_custom_init_cmd_t;
+
 /**
  * @brief sensor initialization parameter
  *
@@ -55,6 +63,8 @@ typedef struct {
     uint32_t min_delay;   /*!< set minimum acquisition interval*/
     int intr_pin;         /*!< set interrupt pin */
     int intr_type;        /*!< set interrupt type*/
+    const sensor_custom_init_cmd_t *init_cmds; /*!< set custom initialization commands, NULL if not used */
+    const size_t init_cmds_num;  /*!< number of custom initialization commands, 0 if not used */
 } sensor_config_t;
 
 /**
