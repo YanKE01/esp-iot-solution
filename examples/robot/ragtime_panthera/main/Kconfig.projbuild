@@ -1,0 +1,15 @@
+menu "Example Configuration"
+
+    config DEBUG_MODE
+        bool "Enable debugging using the console"
+        default y
+        help
+            Use the console to enable robotic arm position control and other feature debugging.
+
+    config IKINE_TEST
+        bool "Test whether points within the range can be solved by inverse kinematics"
+        default n
+        help
+            Inverse kinematics test
+
+endmenu
