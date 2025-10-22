@@ -1,10 +1,12 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "unity.h"
 #include "unity_test_runner.h"
 #include "unity_test_utils_memory.h"
@@ -37,6 +39,11 @@ TEST_CASE("usb_device_uac_test", "[usb_device_uac]")
         .cb_ctx = NULL,
     };
     uac_device_init(&config);
+
+    while (1) {
+
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
 }
 
 static size_t before_free_8bit;
