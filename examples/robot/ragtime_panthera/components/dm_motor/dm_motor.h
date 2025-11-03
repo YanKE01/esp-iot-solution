@@ -14,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 
 namespace damiao {
 
@@ -81,10 +82,13 @@ public:
     Motor_Control &operator=(const Motor_Control &) = delete;
 
     void add_motor(Motor *motor);
+    Motor* get_motor_by_master_id(uint32_t master_id);
     bool switch_control_mode(Motor &motor, Control_Mode control_mode);
     esp_err_t refresh_motor_status(Motor &motor);
     esp_err_t enable_motor(Motor &motor);
     esp_err_t disable_motor(Motor &motor);
+    esp_err_t enable_all_motors();
+    esp_err_t disable_all_motors();
     esp_err_t pos_vel_control(Motor &motor, float position, float velocity);
     esp_err_t vel_control(Motor &motor, float velocity);
     esp_err_t mit_control(Motor &motor, float position, float velocity, float kp, float kd, float torque);
@@ -112,6 +116,7 @@ private:
     bool initialized_;
     twai_node_handle_t twai_node_;
     QueueHandle_t twai_data_queue_;
+    SemaphoreHandle_t mutex_;
     std::unordered_map<uint32_t, Motor*> motor_map_;
 };
 

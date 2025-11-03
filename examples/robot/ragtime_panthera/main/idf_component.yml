@@ -4,3 +4,4 @@ dependencies:
     version: '>=5.5'
   espressif/esp-brookesia: "0.5.0"
   espressif/esp32_p4_function_ev_board: "5.0.3"
+  espressif/usb_host_uvc: "2.3.0"

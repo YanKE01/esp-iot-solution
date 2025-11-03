@@ -80,8 +80,12 @@ DM_Motor_Type Motor::get_motor_type() const
 Motor_Control* Motor_Control::instance_ = nullptr;
 
 Motor_Control::Motor_Control(gpio_num_t tx, gpio_num_t rx)
-    : tx_pin_(tx), rx_pin_(rx), initialized_(false), twai_node_(nullptr), twai_data_queue_(nullptr)
+    : tx_pin_(tx), rx_pin_(rx), initialized_(false), twai_node_(nullptr), twai_data_queue_(nullptr), mutex_(nullptr)
 {
+    mutex_ = xSemaphoreCreateMutex();
+    if (mutex_ == nullptr) {
+        ESP_LOGE("dm_motor", "Failed to create mutex");
+    }
 }
 
 Motor_Control* Motor_Control::getInstance(gpio_num_t tx, gpio_num_t rx)
@@ -143,53 +147,54 @@ void Motor_Control::twai_data_task(void *args)
             if (rx_frame.buffer_len == TWAI_FRAME_MAX_LEN) {
                 uint32_t master_id = rx_frame.header.id;
 
-                // Find motor by master ID
+                // Find motor by master ID (no lock needed for read-only access)
                 auto it = motor_control->motor_map_.find(master_id);
                 if (it != motor_control->motor_map_.end()) {
                     Motor *motor = it->second;
-                    ESP_LOGD("dm_motor", "Received data for motor with master ID: 0x%08X", master_id);
+                    if (motor != nullptr) {
+                        ESP_LOGD("dm_motor", "Received data for motor with master ID: 0x%08X", master_id);
 
-                    // Parse CAN data and update motor feedback parameters
-                    motor->motor_fb_param.state = rx_frame.buffer[0] >> 4;
+                        // Parse CAN data and update motor feedback parameters
+                        motor->motor_fb_param.state = rx_frame.buffer[0] >> 4;
 
-                    // Check for error states and log them
-                    switch (motor->motor_fb_param.state) {
-                    case 8:
-                        ESP_LOGE("dm_motor", "Motor 0x%08X: Over voltage error", master_id);
-                        break;
-                    case 9:
-                        ESP_LOGE("dm_motor", "Motor 0x%08X: Under voltage error", master_id);
-                        break;
-                    case 0xA:
-                        ESP_LOGE("dm_motor", "Motor 0x%08X: Over current error", master_id);
-                        break;
-                    case 0xB:
-                        ESP_LOGE("dm_motor", "Motor 0x%08X: MOS over temperature error", master_id);
-                        break;
-                    case 0xC:
-                        ESP_LOGE("dm_motor", "Motor 0x%08X: Motor coil over temperature error", master_id);
-                        break;
-                    case 0xD:
-                        ESP_LOGE("dm_motor", "Motor 0x%08X: Communication lost error", master_id);
-                        break;
-                    case 0xE:
-                        ESP_LOGE("dm_motor", "Motor 0x%08X: Overload error", master_id);
-                        break;
-                    default:
-                        // Normal state, no error
-                        break;
+                        // Check for error states and log them
+                        switch (motor->motor_fb_param.state) {
+                        case 8:
+                            ESP_LOGE("dm_motor", "Motor 0x%08X: Over voltage error", master_id);
+                            break;
+                        case 9:
+                            ESP_LOGE("dm_motor", "Motor 0x%08X: Under voltage error", master_id);
+                            break;
+                        case 0xA:
+                            ESP_LOGE("dm_motor", "Motor 0x%08X: Over current error", master_id);
+                            break;
+                        case 0xB:
+                            ESP_LOGE("dm_motor", "Motor 0x%08X: MOS over temperature error", master_id);
+                            break;
+                        case 0xC:
+                            ESP_LOGE("dm_motor", "Motor 0x%08X: Motor coil over temperature error", master_id);
+                            break;
+                        case 0xD:
+                            ESP_LOGE("dm_motor", "Motor 0x%08X: Communication lost error", master_id);
+                            break;
+                        case 0xE:
+                            ESP_LOGE("dm_motor", "Motor 0x%08X: Overload error", master_id);
+                            break;
+                        default:
+                            // Normal state, no error
+                            break;
+                        }
+
+                        int position = (rx_frame.buffer[1] << 8) | (rx_frame.buffer[2]);
+                        motor->motor_fb_param.position = motor_control->unit_to_float(position, P_MIN, P_MAX, 16);
+                        int velocity = (rx_frame.buffer[3] << 4) | (rx_frame.buffer[4] >> 4);
+                        motor->motor_fb_param.velocity = motor_control->unit_to_float(velocity, V_MIN, V_MAX, 12);
+                        int torque = ((rx_frame.buffer[4] & 0xF) << 8) | (rx_frame.buffer[5]);
+                        motor->motor_fb_param.torque = motor_control->unit_to_float(torque, T_MIN, T_MAX, 12);
+
+                        motor->motor_fb_param.temper_mos = (float)rx_frame.buffer[6];
+                        motor->motor_fb_param.temper_rotor = (float)rx_frame.buffer[7];
                     }
-
-                    int position = (rx_frame.buffer[1] << 8) | (rx_frame.buffer[2]);
-                    motor->motor_fb_param.position = motor_control->unit_to_float(position, P_MIN, P_MAX, 16);
-                    int velocity = (rx_frame.buffer[3] << 4) | (rx_frame.buffer[4] >> 4);
-                    motor->motor_fb_param.velocity = motor_control->unit_to_float(velocity, V_MIN, V_MAX, 12);
-                    int torque = ((rx_frame.buffer[4] & 0xF) << 8) | (rx_frame.buffer[5]);
-                    motor->motor_fb_param.torque = motor_control->unit_to_float(torque, T_MIN, T_MAX, 12);
-
-                    motor->motor_fb_param.temper_mos = (float)rx_frame.buffer[6];
-                    motor->motor_fb_param.temper_rotor = (float)rx_frame.buffer[7];
-
                 } else {
                     ESP_LOGW("dm_motor", "Unknown motor master ID: 0x%08X", master_id);
                 }
@@ -245,6 +250,10 @@ esp_err_t Motor_Control::init()
         ESP_LOGE("dm_motor", "Failed to create twai_data_task");
         vQueueDelete(twai_data_queue_);
         twai_data_queue_ = nullptr;
+        if (mutex_ != nullptr) {
+            vSemaphoreDelete(mutex_);
+            mutex_ = nullptr;
+        }
         return ESP_FAIL;
     }
 
@@ -255,96 +264,222 @@ esp_err_t Motor_Control::init()
 
 void Motor_Control::add_motor(Motor *motor)
 {
-    if (motor->get_master_id() != 0x00) {
-        motor_map_.insert({motor->get_master_id(), motor});
+    if (mutex_ == nullptr) {
+        ESP_LOGE("dm_motor", "Mutex not initialized");
+        return;
     }
+
+    if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
+        if (motor->get_master_id() != 0x00) {
+            motor_map_.insert({motor->get_master_id(), motor});
+        }
+        xSemaphoreGive(mutex_);
+    }
+}
+
+Motor* Motor_Control::get_motor_by_master_id(uint32_t master_id)
+{
+    if (mutex_ == nullptr) {
+        ESP_LOGE("dm_motor", "Mutex not initialized");
+        return nullptr;
+    }
+
+    Motor* motor = nullptr;
+    if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
+        auto it = motor_map_.find(master_id);
+        if (it != motor_map_.end()) {
+            motor = it->second;
+        }
+        xSemaphoreGive(mutex_);
+    }
+    return motor;
 }
 
 bool Motor_Control::switch_control_mode(Motor &motor, Control_Mode control_mode)
 {
-    motor.motor_control_mode = control_mode;
-    motor.update_mode_id();
-    uint8_t write_data[4] = {(uint8_t)control_mode, 0x00, 0x00, 0x00};
-    if (write_motor_param(motor, 10, write_data) != ESP_OK) {
-        ESP_LOGE("dm_motor", "Failed to write motor parameter");
+    if (mutex_ == nullptr) {
+        ESP_LOGE("dm_motor", "Mutex not initialized");
         return false;
     }
 
+    // Update motor mode (requires lock for thread safety)
+    if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
+        motor.motor_control_mode = control_mode;
+        motor.update_mode_id();
+        xSemaphoreGive(mutex_);
+    } else {
+        return false;
+    }
+
+    // Call write_motor_param outside the lock to avoid deadlock
+    // (write_motor_param will acquire the lock internally)
+    uint8_t write_data[4] = {(uint8_t)control_mode, 0x00, 0x00, 0x00};
+    esp_err_t ret = write_motor_param(motor, 10, write_data);
+
+    if (ret != ESP_OK) {
+        ESP_LOGE("dm_motor", "Failed to write motor parameter");
+        return false;
+    }
     return true;
 }
 
 esp_err_t Motor_Control::refresh_motor_status(Motor &motor)
 {
+    if (mutex_ == nullptr) {
+        ESP_LOGE("dm_motor", "Mutex not initialized");
+        return ESP_FAIL;
+    }
+
     if (twai_node_ == nullptr) {
         ESP_LOGE("dm_motor", "TWAI node is not initialized");
         return ESP_FAIL;
     }
-    uint32_t id = 0x7FF;
-    uint8_t can_low = motor.get_slave_id() & 0xff;
-    uint8_t can_high = (motor.get_slave_id() >> 8) & 0xff;
-    uint8_t data_buf[4] = {can_low, can_high, 0xcc, 0x00};
 
-    twai_frame_t tx_frame = {};
-    tx_frame.header.id = id;
-    tx_frame.buffer = (uint8_t *) data_buf;
-    tx_frame.buffer_len = sizeof(data_buf);
-    if (twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100)) != ESP_OK) {
-        ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
-        return ESP_FAIL;
+    if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
+        uint32_t id = 0x7FF;
+        uint8_t can_low = motor.get_slave_id() & 0xff;
+        uint8_t can_high = (motor.get_slave_id() >> 8) & 0xff;
+        uint8_t data_buf[4] = {can_low, can_high, 0xcc, 0x00};
+
+        twai_frame_t tx_frame = {};
+        tx_frame.header.id = id;
+        tx_frame.buffer = (uint8_t *) data_buf;
+        tx_frame.buffer_len = sizeof(data_buf);
+        esp_err_t ret = twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100));
+        xSemaphoreGive(mutex_);
+
+        if (ret != ESP_OK) {
+            ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
+            return ESP_FAIL;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+        return ESP_OK;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
-    return ESP_OK;
+    return ESP_FAIL;
 }
 
 esp_err_t Motor_Control::enable_motor(Motor &motor)
 {
+    if (mutex_ == nullptr) {
+        ESP_LOGE("dm_motor", "Mutex not initialized");
+        return ESP_FAIL;
+    }
+
     if (twai_node_ == nullptr) {
         ESP_LOGE("dm_motor", "TWAI node is not initialized");
         return ESP_FAIL;
     }
-    ESP_LOGI("dm_motor", "Enabling motor with ID: 0x%08X", motor.get_slave_id() + motor.mode_id);
 
-    uint8_t data_buf[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfc};
+    if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
+        ESP_LOGI("dm_motor", "Enabling motor with ID: 0x%08X", motor.get_slave_id() + motor.mode_id);
 
-    twai_frame_t tx_frame = {};
-    tx_frame.header.id = motor.get_slave_id() + motor.mode_id;
-    tx_frame.buffer = (uint8_t *) data_buf;
-    tx_frame.buffer_len = sizeof(data_buf);
+        uint8_t data_buf[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfc};
 
-    if (twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100)) != ESP_OK) {
-        ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
-        return ESP_FAIL;
+        twai_frame_t tx_frame = {};
+        tx_frame.header.id = motor.get_slave_id() + motor.mode_id;
+        tx_frame.buffer = (uint8_t *) data_buf;
+        tx_frame.buffer_len = sizeof(data_buf);
+
+        esp_err_t ret = twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100));
+        xSemaphoreGive(mutex_);
+
+        if (ret != ESP_OK) {
+            ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
+            return ESP_FAIL;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(100));
+        return ESP_OK;
     }
-
-    vTaskDelay(pdMS_TO_TICKS(100));
-    return ESP_OK;
+    return ESP_FAIL;
 }
 
 esp_err_t Motor_Control::disable_motor(Motor &motor)
 {
+    if (mutex_ == nullptr) {
+        ESP_LOGE("dm_motor", "Mutex not initialized");
+        return ESP_FAIL;
+    }
+
     if (twai_node_ == nullptr) {
         ESP_LOGE("dm_motor", "TWAI node is not initialized");
         return ESP_FAIL;
     }
-    ESP_LOGD("dm_motor", "Disabling motor with ID: 0x%08X", motor.get_slave_id() + motor.mode_id);
 
-    uint8_t data_buf[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfd};
-    twai_frame_t tx_frame = {};
-    tx_frame.header.id = motor.get_slave_id() + motor.mode_id;
-    tx_frame.buffer = (uint8_t *) data_buf;
-    tx_frame.buffer_len = sizeof(data_buf);
+    if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
+        ESP_LOGD("dm_motor", "Disabling motor with ID: 0x%08X", motor.get_slave_id() + motor.mode_id);
 
-    if (twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100)) != ESP_OK) {
-        ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
+        uint8_t data_buf[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfd};
+        twai_frame_t tx_frame = {};
+        tx_frame.header.id = motor.get_slave_id() + motor.mode_id;
+        tx_frame.buffer = (uint8_t *) data_buf;
+        tx_frame.buffer_len = sizeof(data_buf);
+
+        esp_err_t ret = twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100));
+        xSemaphoreGive(mutex_);
+
+        if (ret != ESP_OK) {
+            ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
+            return ESP_FAIL;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(100));
+        return ESP_OK;
+    }
+    return ESP_FAIL;
+}
+
+esp_err_t Motor_Control::enable_all_motors()
+{
+    if (twai_node_ == nullptr) {
+        ESP_LOGE("dm_motor", "TWAI node is not initialized");
         return ESP_FAIL;
     }
 
-    vTaskDelay(pdMS_TO_TICKS(100));
-    return ESP_OK;
+    // No need to lock motor_map_ here - enable_motor will handle its own locking
+    esp_err_t ret = ESP_OK;
+    for (auto &pair : motor_map_) {
+        Motor *motor = pair.second;
+        if (motor != nullptr) {
+            esp_err_t err = enable_motor(*motor);
+            if (err != ESP_OK) {
+                ESP_LOGE("dm_motor", "Failed to enable motor with master ID: 0x%08X", pair.first);
+                ret = ESP_FAIL;
+            }
+        }
+    }
+    return ret;
+}
+
+esp_err_t Motor_Control::disable_all_motors()
+{
+    if (twai_node_ == nullptr) {
+        ESP_LOGE("dm_motor", "TWAI node is not initialized");
+        return ESP_FAIL;
+    }
+
+    // No need to lock motor_map_ here - disable_motor will handle its own locking
+    esp_err_t ret = ESP_OK;
+    for (auto &pair : motor_map_) {
+        Motor *motor = pair.second;
+        if (motor != nullptr) {
+            esp_err_t err = disable_motor(*motor);
+            if (err != ESP_OK) {
+                ESP_LOGE("dm_motor", "Failed to disable motor with master ID: 0x%08X", pair.first);
+                ret = ESP_FAIL;
+            }
+        }
+    }
+    return ret;
 }
 
 esp_err_t Motor_Control::pos_vel_control(Motor &motor, float position, float velocity)
 {
+    if (mutex_ == nullptr) {
+        ESP_LOGE("dm_motor", "Mutex not initialized");
+        return ESP_FAIL;
+    }
+
     if (twai_node_ == nullptr) {
         ESP_LOGE("dm_motor", "TWAI node is not initialized");
         return ESP_FAIL;
@@ -355,38 +490,49 @@ esp_err_t Motor_Control::pos_vel_control(Motor &motor, float position, float vel
         return ESP_ERR_INVALID_STATE;
     }
 
-    uint8_t *pbuf, *vbuf;
-    uint8_t data[8];
+    if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
+        uint8_t *pbuf, *vbuf;
+        uint8_t data[8];
 
-    uint32_t id = motor.get_slave_id() + motor.mode_id;
-    pbuf = (uint8_t *)&position;
-    vbuf = (uint8_t *)&velocity;
+        uint32_t id = motor.get_slave_id() + motor.mode_id;
+        pbuf = (uint8_t *)&position;
+        vbuf = (uint8_t *)&velocity;
 
-    data[0] = *pbuf;
-    data[1] = *(pbuf + 1);
-    data[2] = *(pbuf + 2);
-    data[3] = *(pbuf + 3);
-    data[4] = *vbuf;
-    data[5] = *(vbuf + 1);
-    data[6] = *(vbuf + 2);
-    data[7] = *(vbuf + 3);
+        data[0] = *pbuf;
+        data[1] = *(pbuf + 1);
+        data[2] = *(pbuf + 2);
+        data[3] = *(pbuf + 3);
+        data[4] = *vbuf;
+        data[5] = *(vbuf + 1);
+        data[6] = *(vbuf + 2);
+        data[7] = *(vbuf + 3);
 
-    twai_frame_t tx_frame = {};
-    tx_frame.header.id = id;
-    tx_frame.buffer = (uint8_t *)data;
-    tx_frame.buffer_len = sizeof(data);
+        twai_frame_t tx_frame = {};
+        tx_frame.header.id = id;
+        tx_frame.buffer = (uint8_t *)data;
+        tx_frame.buffer_len = sizeof(data);
 
-    if (twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100)) != ESP_OK) {
-        ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
-        return ESP_FAIL;
+        esp_err_t ret = twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100));
+        xSemaphoreGive(mutex_);
+
+        if (ret != ESP_OK) {
+            ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
+            return ESP_FAIL;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+        return ESP_OK;
     }
-
-    vTaskDelay(pdMS_TO_TICKS(10));
-    return ESP_OK;
+    return ESP_FAIL;
 }
 
 esp_err_t Motor_Control::vel_control(Motor &motor, float velocity)
 {
+    if (mutex_ == nullptr) {
+        ESP_LOGE("dm_motor", "Mutex not initialized");
+        return ESP_FAIL;
+    }
+
     if (twai_node_ == nullptr) {
         ESP_LOGE("dm_motor", "TWAI node is not initialized");
         return ESP_FAIL;
@@ -397,31 +543,42 @@ esp_err_t Motor_Control::vel_control(Motor &motor, float velocity)
         return ESP_ERR_INVALID_STATE;
     }
 
-    uint32_t id = motor.get_slave_id() + motor.mode_id;
-    uint8_t *vbuf;
-    uint8_t data[4];
+    if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
+        uint32_t id = motor.get_slave_id() + motor.mode_id;
+        uint8_t *vbuf;
+        uint8_t data[4];
 
-    vbuf = (uint8_t *)&velocity;
-    data[0] = *vbuf;
-    data[1] = *(vbuf + 1);
-    data[2] = *(vbuf + 2);
-    data[3] = *(vbuf + 3);
+        vbuf = (uint8_t *)&velocity;
+        data[0] = *vbuf;
+        data[1] = *(vbuf + 1);
+        data[2] = *(vbuf + 2);
+        data[3] = *(vbuf + 3);
 
-    twai_frame_t tx_frame = {};
-    tx_frame.header.id = id;
-    tx_frame.buffer = (uint8_t *)data;
-    tx_frame.buffer_len = sizeof(data);
+        twai_frame_t tx_frame = {};
+        tx_frame.header.id = id;
+        tx_frame.buffer = (uint8_t *)data;
+        tx_frame.buffer_len = sizeof(data);
 
-    if (twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100)) != ESP_OK) {
-        ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
-        return ESP_FAIL;
+        esp_err_t ret = twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100));
+        xSemaphoreGive(mutex_);
+
+        if (ret != ESP_OK) {
+            ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
+            return ESP_FAIL;
+        }
+
+        return ESP_OK;
     }
-
-    return ESP_OK;
+    return ESP_FAIL;
 }
 
 esp_err_t Motor_Control::mit_control(Motor &motor, float position, float velocity, float kp, float kd, float torque)
 {
+    if (mutex_ == nullptr) {
+        ESP_LOGE("dm_motor", "Mutex not initialized");
+        return ESP_FAIL;
+    }
+
     if (twai_node_ == nullptr) {
         ESP_LOGE("dm_motor", "TWAI node is not initialized");
         return ESP_FAIL;
@@ -432,89 +589,117 @@ esp_err_t Motor_Control::mit_control(Motor &motor, float position, float velocit
         return ESP_ERR_INVALID_STATE;
     }
 
-    uint8_t data[8];
-    int pos_tmp, vel_tmp, kp_tmp, kd_tmp, tor_tmp;
-    uint32_t id = motor.get_slave_id() + motor.mode_id;
+    if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
+        uint8_t data[8];
+        int pos_tmp, vel_tmp, kp_tmp, kd_tmp, tor_tmp;
+        uint32_t id = motor.get_slave_id() + motor.mode_id;
 
-    pos_tmp = float_to_unit(position, P_MIN, P_MAX, 16);
-    vel_tmp = float_to_unit(velocity, V_MIN, V_MAX, 12);
-    tor_tmp = float_to_unit(torque, T_MIN, T_MAX, 12);
-    kp_tmp = float_to_unit(kp, KP_MIN, KP_MAX, 12);
-    kd_tmp = float_to_unit(kd, KD_MIN, KD_MAX, 12);
+        pos_tmp = float_to_unit(position, P_MIN, P_MAX, 16);
+        vel_tmp = float_to_unit(velocity, V_MIN, V_MAX, 12);
+        tor_tmp = float_to_unit(torque, T_MIN, T_MAX, 12);
+        kp_tmp = float_to_unit(kp, KP_MIN, KP_MAX, 12);
+        kd_tmp = float_to_unit(kd, KD_MIN, KD_MAX, 12);
 
-    data[0] = (pos_tmp >> 8);
-    data[1] = pos_tmp;
-    data[2] = (vel_tmp >> 4);
-    data[3] = ((vel_tmp & 0xF) << 4) | ((kp_tmp >> 8));
-    data[4] = kp_tmp;
-    data[5] = (kd_tmp >> 4) ;
-    data[6] = ((kd_tmp & 0xF) << 4) | ((tor_tmp >> 8));
-    data[7] = tor_tmp;
+        data[0] = (pos_tmp >> 8);
+        data[1] = pos_tmp;
+        data[2] = (vel_tmp >> 4);
+        data[3] = ((vel_tmp & 0xF) << 4) | ((kp_tmp >> 8));
+        data[4] = kp_tmp;
+        data[5] = (kd_tmp >> 4) ;
+        data[6] = ((kd_tmp & 0xF) << 4) | ((tor_tmp >> 8));
+        data[7] = tor_tmp;
 
-    twai_frame_t tx_frame = {};
-    tx_frame.header.id = id;
-    tx_frame.buffer = (uint8_t *)data;
-    tx_frame.buffer_len = sizeof(data);
+        twai_frame_t tx_frame = {};
+        tx_frame.header.id = id;
+        tx_frame.buffer = (uint8_t *)data;
+        tx_frame.buffer_len = sizeof(data);
 
-    if (twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100)) != ESP_OK) {
-        ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
-        return ESP_FAIL;
+        esp_err_t ret = twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100));
+        xSemaphoreGive(mutex_);
+
+        if (ret != ESP_OK) {
+            ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
+            return ESP_FAIL;
+        }
+
+        return ESP_OK;
     }
-
-    return ESP_OK;
+    return ESP_FAIL;
 }
 
 esp_err_t Motor_Control::save_zero_position(Motor &motor)
 {
+    if (mutex_ == nullptr) {
+        ESP_LOGE("dm_motor", "Mutex not initialized");
+        return ESP_FAIL;
+    }
+
     if (twai_node_ == nullptr) {
         ESP_LOGE("dm_motor", "TWAI node is not initialized");
         return ESP_FAIL;
     }
 
-    uint32_t id = motor.get_slave_id() + motor.mode_id;
-    uint8_t data[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE};
+    if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
+        uint32_t id = motor.get_slave_id() + motor.mode_id;
+        uint8_t data[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE};
 
-    twai_frame_t tx_frame = {};
-    tx_frame.header.id = id;
-    tx_frame.buffer = (uint8_t *)data;
-    tx_frame.buffer_len = sizeof(data);
+        twai_frame_t tx_frame = {};
+        tx_frame.header.id = id;
+        tx_frame.buffer = (uint8_t *)data;
+        tx_frame.buffer_len = sizeof(data);
 
-    if (twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100)) != ESP_OK) {
-        ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
-        return ESP_FAIL;
+        esp_err_t ret = twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100));
+        xSemaphoreGive(mutex_);
+
+        if (ret != ESP_OK) {
+            ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
+            return ESP_FAIL;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+        return ESP_OK;
     }
-
-    vTaskDelay(pdMS_TO_TICKS(10));
-    return ESP_OK;
+    return ESP_FAIL;
 }
 
 esp_err_t Motor_Control::write_motor_param(Motor &motor, uint8_t rid, const uint8_t data[4])
 {
+    if (mutex_ == nullptr) {
+        ESP_LOGE("dm_motor", "Mutex not initialized");
+        return ESP_FAIL;
+    }
+
     if (twai_node_ == nullptr) {
         ESP_LOGE("dm_motor", "TWAI node is not initialized");
         return ESP_FAIL;
     }
 
-    uint32_t id = motor.get_slave_id();
-    uint8_t can_low = id & 0xff;
-    uint8_t can_high = (id >> 8) & 0xff;
-    uint8_t data_buf[8] = {can_low, can_high, 0x55, rid, 0x00, 0x00, 0x00, 0x00};
-    for (int i = 0; i < 4; i++) {
-        data_buf[i + 4] = data[i];
+    if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
+        uint32_t id = motor.get_slave_id();
+        uint8_t can_low = id & 0xff;
+        uint8_t can_high = (id >> 8) & 0xff;
+        uint8_t data_buf[8] = {can_low, can_high, 0x55, rid, 0x00, 0x00, 0x00, 0x00};
+        for (int i = 0; i < 4; i++) {
+            data_buf[i + 4] = data[i];
+        }
+
+        twai_frame_t tx_frame = {};
+        tx_frame.header.id = 0x7ff;
+        tx_frame.buffer = (uint8_t *) data_buf;
+        tx_frame.buffer_len = sizeof(data_buf);
+
+        esp_err_t ret = twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100));
+        xSemaphoreGive(mutex_);
+
+        if (ret != ESP_OK) {
+            ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
+            return ESP_FAIL;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+        return ESP_OK;
     }
-
-    twai_frame_t tx_frame = {};
-    tx_frame.header.id = 0x7ff;
-    tx_frame.buffer = (uint8_t *) data_buf;
-    tx_frame.buffer_len = sizeof(data_buf);
-
-    if (twai_node_transmit(twai_node_, &tx_frame, pdMS_TO_TICKS(100)) != ESP_OK) {
-        ESP_LOGE("dm_motor", "Failed to transmit TWAI frame");
-        return ESP_FAIL;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(10));
-    return ESP_OK;
+    return ESP_FAIL;
 }
 
 }
