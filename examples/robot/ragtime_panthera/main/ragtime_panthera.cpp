@@ -4,15 +4,27 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <stdio.h>
+#include <iostream>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_log.h"
+#include "esp_err.h"
 #include "kinematic.h"
 #include "app_lcd.h"
+#include "dm_motor.h"
 
 static const char *TAG = "main";
 
 extern "C" void app_main(void)
 {
+    damiao::Motor_Control* motor_control = damiao::Motor_Control::getInstance(GPIO_NUM_24, GPIO_NUM_25);
+    esp_err_t ret = motor_control->init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Motor control initialization failed: %s", esp_err_to_name(ret));
+        return;
+    }
+    ESP_LOGI(TAG, "Motor control initialized successfully");
+
     ESP_Brookesia_Phone* phone = app_lcd_init();
     assert(phone != nullptr);
 
@@ -29,6 +41,6 @@ extern "C" void app_main(void)
         }
 
         phone->unlockLv();
-        vTaskDelay(10000 / portTICK_PERIOD_MS);
+        vTaskDelay(5000 / portTICK_PERIOD_MS);
     }
 }
