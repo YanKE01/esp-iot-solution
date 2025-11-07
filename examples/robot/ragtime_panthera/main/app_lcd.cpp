@@ -44,6 +44,9 @@ ESP_Brookesia_Phone* app_lcd_init(void)
         }
     };
 
+    cfg.lvgl_port_cfg.task_priority = 5;
+    cfg.lvgl_port_cfg.task_affinity = 1;
+
     bsp_display_start_with_config(&cfg);
     bsp_display_brightness_set(100);
     bsp_display_backlight_on();

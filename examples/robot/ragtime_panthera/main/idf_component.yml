@@ -4,4 +4,11 @@ dependencies:
     version: '>=5.5'
   espressif/esp-brookesia: "0.5.0"
   espressif/esp32_p4_function_ev_board: "5.0.3"
-  espressif/usb_host_uvc: "2.3.0"
+  espressif/usb_host_uvc:
+    git: "https://github.com/espressif/esp-usb"
+    version: fix/improve_uac_compatibility_and_add_checks_for_uvc
+    path: host/class/uvc/usb_host_uvc
+  color_detect:
+    override_path: "/home/yanke/project/esp-dl/models/color_detect"
+  esp-dl:
+    override_path: "/home/yanke/project/esp-dl/esp-dl"

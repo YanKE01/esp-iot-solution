@@ -33,6 +33,7 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "Phone initialized successfully");
 
     // Initialize the app
+    bsp_display_lock(0);
     PantheraCtrl* panthera_ctrl = new PantheraCtrl(motor_control);
     assert(panthera_ctrl != nullptr && "Failed to create panthera_ctrl");
     assert((phone->installApp(panthera_ctrl) >= 0) && "Failed to install panthera_ctrl");
@@ -40,6 +41,7 @@ extern "C" void app_main(void)
     PantheraGrasp* panthera_grasp = new PantheraGrasp(motor_control);
     assert(panthera_grasp != nullptr && "Failed to create panthera_grasp");
     assert((phone->installApp(panthera_grasp) >= 0) && "Failed to install panthera_grasp");
+    bsp_display_unlock();
 
     while (1) {
         uint16_t free_sram_size_kb = heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024;
