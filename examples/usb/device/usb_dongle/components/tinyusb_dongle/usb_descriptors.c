@@ -8,6 +8,31 @@
 #include "sdkconfig.h"
 #include "tinyusb_types.h"
 
+// Work around TinyUSB BTH IAD/interface-count mismatch when ISO ALT count is 0.
+// Keep this local to the example and do not modify the TinyUSB component.
+#if CFG_TUD_BTH
+#if (CFG_TUD_BTH_ISO_ALT_COUNT == 0)
+#define TUD_BTH_DESCRIPTOR_LOCAL(_itfnum, _stridx, _ep_evt, _ep_evt_size, _ep_evt_interval, _ep_in, _ep_out, _ep_size, _iso_size) \
+    8, TUSB_DESC_INTERFACE_ASSOCIATION, _itfnum, 1, TUD_BT_APP_CLASS, TUD_BT_APP_SUBCLASS, TUD_BT_PROTOCOL_PRIMARY_CONTROLLER, 0, \
+    9, TUSB_DESC_INTERFACE, _itfnum, 0, 3, TUD_BT_APP_CLASS, TUD_BT_APP_SUBCLASS, TUD_BT_PROTOCOL_PRIMARY_CONTROLLER, _stridx, \
+    7, TUSB_DESC_ENDPOINT, _ep_evt, TUSB_XFER_INTERRUPT, U16_TO_U8S_LE(_ep_evt_size), _ep_evt_interval, \
+    7, TUSB_DESC_ENDPOINT, _ep_in, TUSB_XFER_BULK, U16_TO_U8S_LE(_ep_size), 1, \
+    7, TUSB_DESC_ENDPOINT, _ep_out, TUSB_XFER_BULK, U16_TO_U8S_LE(_ep_size), 1
+#elif (CFG_TUD_BTH_ISO_ALT_COUNT == 1)
+#define TUD_BTH_DESCRIPTOR_LOCAL(_itfnum, _stridx, _ep_evt, _ep_evt_size, _ep_evt_interval, _ep_in, _ep_out, _ep_size, _iso_size) \
+    8, TUSB_DESC_INTERFACE_ASSOCIATION, _itfnum, 2, TUD_BT_APP_CLASS, TUD_BT_APP_SUBCLASS, TUD_BT_PROTOCOL_PRIMARY_CONTROLLER, 0, \
+    9, TUSB_DESC_INTERFACE, _itfnum, 0, 3, TUD_BT_APP_CLASS, TUD_BT_APP_SUBCLASS, TUD_BT_PROTOCOL_PRIMARY_CONTROLLER, _stridx, \
+    7, TUSB_DESC_ENDPOINT, _ep_evt, TUSB_XFER_INTERRUPT, U16_TO_U8S_LE(_ep_evt_size), _ep_evt_interval, \
+    7, TUSB_DESC_ENDPOINT, _ep_in, TUSB_XFER_BULK, U16_TO_U8S_LE(_ep_size), 1, \
+    7, TUSB_DESC_ENDPOINT, _ep_out, TUSB_XFER_BULK, U16_TO_U8S_LE(_ep_size), 1, \
+    9, TUSB_DESC_INTERFACE, (uint8_t)((_itfnum) + 1), 0, 2, TUD_BT_APP_CLASS, TUD_BT_APP_SUBCLASS, TUD_BT_PROTOCOL_PRIMARY_CONTROLLER, 0, \
+    7, TUSB_DESC_ENDPOINT, (uint8_t)((_ep_in) + 1), TUSB_XFER_ISOCHRONOUS, U16_TO_U8S_LE(_iso_size), 1, \
+    7, TUSB_DESC_ENDPOINT, (uint8_t)((_ep_out) + 1), TUSB_XFER_ISOCHRONOUS, U16_TO_U8S_LE(_iso_size), 1
+#else
+#error "usb_dongle example supports BTH ISO ALT count 0 or 1 only"
+#endif
+#endif // CFG_TUD_BTH
+
 /*
  * A combination of interfaces must have a unique product id, since PC will save device driver after the first plug.
  * Same VID/PID with different interface e.g MSC (first), then CDC (later) will possibly cause system error on PC.
@@ -243,7 +268,7 @@ uint8_t const descriptor_fs_cfg_default[] = {
 #if CFG_TUD_BTH
     // BT Primary controller descriptor
     // Interface number, string index, attributes, event endpoint, event endpoint size, interval, data in, data out, data endpoint size, iso endpoint sizes
-    TUD_BTH_DESCRIPTOR(ITF_NUM_BTH, STRID_BTH_INTERFACE, (0x80 | EPNUM_BT_EVT), 16, 1, (0x80 | EPNUM_BT_BULK_OUT), EPNUM_BT_BULK_OUT, 64, 64, 64),
+    TUD_BTH_DESCRIPTOR_LOCAL(ITF_NUM_BTH, STRID_BTH_INTERFACE, (0x80 | EPNUM_BT_EVT), 16, 1, (0x80 | EPNUM_BT_BULK_OUT), EPNUM_BT_BULK_OUT, 64, 64),
 #endif
 
 #if CFG_TUD_DFU
@@ -286,7 +311,7 @@ uint8_t const descriptor_hs_cfg_default[] = {
 #if CFG_TUD_BTH
     // BT Primary controller descriptor
     // Interface number, string index, attributes, event endpoint, event endpoint size, interval, data in, data out, data endpoint size, iso endpoint sizes
-    TUD_BTH_DESCRIPTOR(ITF_NUM_BTH, STRID_BTH_INTERFACE, (0x80 | EPNUM_BT_EVT), 16, 1, (0x80 | EPNUM_BT_BULK_OUT), EPNUM_BT_BULK_OUT, 512, 1024, 1024),
+    TUD_BTH_DESCRIPTOR_LOCAL(ITF_NUM_BTH, STRID_BTH_INTERFACE, (0x80 | EPNUM_BT_EVT), 16, 1, (0x80 | EPNUM_BT_BULK_OUT), EPNUM_BT_BULK_OUT, 512, 1024),
 #endif
 
 #if CFG_TUD_DFU
