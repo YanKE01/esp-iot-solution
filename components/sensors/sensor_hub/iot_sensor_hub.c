@@ -1,15 +1,17 @@
 /*
- * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <string.h>
 #include <sys/queue.h>
-#include <inttypes.h>
 #include "esp_log.h"
+#include "esp_amp.h"
 #include "iot_sensor_hub.h"
 #include "esp_timer.h"
+#include "lp_core_i2c.h"
+#include "sensor_hub_amp_link.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -42,11 +44,18 @@ const char *SENSOR_MODE_STRING[] = {"MODE_DEFAULT", "MODE_POLLING", "MODE_INTERR
 #define BIT23_KILL_WAITING_TASK (0x01 << 23)
 #define BIT22_COMMON_DATA_READY (0x01 << 22)
 
+typedef struct _iot_sensor_t _iot_sensor_t;
+
 /*default sensor task related*/
 static EventGroupHandle_t s_event_group = NULL;
 static uint32_t s_sensor_wait_bits = BIT23_KILL_WAITING_TASK;
 static TaskHandle_t s_sensor_task_handle = NULL;
 static SemaphoreHandle_t s_sensor_node_mutex = NULL;    /* mutex to achieve thread-safe*/
+static bool s_lp_subcore_started = false;
+static bool s_lp_i2c_initialized = false;
+static SemaphoreHandle_t s_lp_rx_sem = NULL;
+static TaskHandle_t s_lp_rx_task = NULL;
+static _iot_sensor_t *s_lp_sensor_map[SENSOR_HUB_LP_MAX_SENSORS] = {0};
 #define SENSOR_NODE_MUTEX_TICKS_TO_WAIT 200
 
 #ifdef CONFIG_SENSOR_TASK_PRIORITY
@@ -70,7 +79,7 @@ static void sensor_default_event_handler(void *handler_args, esp_event_base_t ba
 #endif
 
 /*private sensor struct type*/
-typedef struct {
+struct _iot_sensor_t {
     bus_handle_t bus;
     sensor_type_t type;
     sensor_mode_t mode;
@@ -78,6 +87,8 @@ typedef struct {
     const char *name;
     sensor_driver_handle_t driver_handle;
     iot_sensor_impl_t *impl;
+    bool enable_amp;
+    uint8_t amp_slot;
     char event_base[SENSOR_EVENT_NAME_LENGTH];
     uint32_t event_bit;
     uint8_t addr;
@@ -87,7 +98,7 @@ typedef struct {
         TimerHandle_t timer_handle; /*polling mode*/
         int32_t isr_state;          /*interrupt mode*/
     };
-} _iot_sensor_t;
+};
 
 typedef struct _iot_sensor_slist_t {
     _iot_sensor_t *p_sensor;
@@ -126,6 +137,10 @@ static iot_sensor_impl_t s_sensor_impls[] = {
 #endif
 };
 
+extern const uint8_t subcore_sensor_hub_lp_detect_bin_start[] asm("_binary_subcore_sensor_hub_lp_detect_bin_start");
+static sensor_hub_lp_cfg_t *s_lp_cfg_table = NULL;
+static esp_amp_queue_t s_lp_rx_queue;
+
 /******************************************Private Functions*********************************************/
 static iot_sensor_impl_t *sensor_find_impl(int sensor_type)
 {
@@ -138,6 +153,183 @@ static iot_sensor_impl_t *sensor_find_impl(int sensor_type)
     }
 
     return NULL;
+}
+
+static int IRAM_ATTR sensor_hub_lp_queue_isr(void *args)
+{
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    SemaphoreHandle_t sem = (SemaphoreHandle_t)args;
+
+    if (sem != NULL) {
+        xSemaphoreGiveFromISR(sem, &xHigherPriorityTaskWoken);
+    }
+
+    return xHigherPriorityTaskWoken == pdTRUE;
+}
+
+static void sensor_hub_lp_rx_task(void *arg)
+{
+    (void)arg;
+
+    while (1) {
+        xSemaphoreTake(s_lp_rx_sem, portMAX_DELAY);
+
+        while (1) {
+            sensor_hub_lp_data_pkt_t *pkt = NULL;
+            uint16_t pkt_size = 0;
+            esp_err_t ret = esp_amp_queue_recv_try(&s_lp_rx_queue, (void **)&pkt, &pkt_size);
+            if (ret != ESP_OK) {
+                break;
+            }
+
+            if (pkt_size == sizeof(sensor_hub_lp_data_pkt_t) && pkt->slot < SENSOR_HUB_LP_MAX_SENSORS) {
+                sensor_data_t sensor_data = { 0 };
+                const sensor_hub_lp_cfg_t *cfg = &s_lp_cfg_table[pkt->slot];
+                _iot_sensor_t *sensor = s_lp_sensor_map[pkt->slot];
+                const char *event_base = NULL;
+
+                if (sensor != NULL) {
+                    event_base = sensor->event_base;
+                    sensor_data.sensor_name = sensor->name;
+                }
+
+                if (event_base == NULL) {
+                    ESP_LOGW(TAG, "lp rx slot=%u no sensor node found", pkt->slot);
+                    ESP_ERROR_CHECK(esp_amp_queue_free_try(&s_lp_rx_queue, pkt));
+                    continue;
+                }
+
+                sensor_data.timestamp = pkt->timestamp * 1000;
+                sensor_data.sensor_type = cfg->type;
+                sensor_data.sensor_addr = cfg->addr;
+                sensor_data.min_delay = cfg->min_delay_ms;
+
+                if (pkt->type == HUMITURE_ID) {
+                    if (pkt->valid_mask & 0x01) {
+                        sensor_data.event_id = SENSOR_TEMP_DATA_READY;
+                        sensor_data.temperature = pkt->data[0];
+                        sensors_event_post(event_base, sensor_data.event_id, &sensor_data, sizeof(sensor_data), 0);
+                    }
+                    if (pkt->valid_mask & 0x02) {
+                        sensor_data.event_id = SENSOR_HUMI_DATA_READY;
+                        sensor_data.humidity = pkt->data[1];
+                        sensors_event_post(event_base, sensor_data.event_id, &sensor_data, sizeof(sensor_data), 0);
+                    }
+                }
+            }
+
+            ESP_ERROR_CHECK(esp_amp_queue_free_try(&s_lp_rx_queue, pkt));
+        }
+    }
+}
+
+static esp_err_t sensor_hub_lp_transport_init(void)
+{
+    if (s_lp_cfg_table == NULL) {
+        s_lp_cfg_table = esp_amp_sys_info_alloc(SENSOR_HUB_LP_SYS_INFO_ID_CFG,
+                                                sizeof(sensor_hub_lp_cfg_t) * SENSOR_HUB_LP_MAX_SENSORS,
+                                                SYS_INFO_CAP_HP);
+        SENSOR_CHECK(s_lp_cfg_table != NULL, "alloc lp cfg table failed", ESP_ERR_NO_MEM);
+        memset(s_lp_cfg_table, 0, sizeof(sensor_hub_lp_cfg_t) * SENSOR_HUB_LP_MAX_SENSORS);
+    }
+
+    if (s_lp_rx_sem == NULL) {
+        s_lp_rx_sem = xSemaphoreCreateCounting(SENSOR_HUB_LP_QUEUE_LEN, 0);
+        SENSOR_CHECK(s_lp_rx_sem != NULL, "create lp rx semaphore failed", ESP_ERR_NO_MEM);
+    }
+
+    if (s_lp_rx_task == NULL) {
+        int ret = esp_amp_queue_main_init(&s_lp_rx_queue, SENSOR_HUB_LP_QUEUE_LEN, sizeof(sensor_hub_lp_data_pkt_t),
+                                          sensor_hub_lp_queue_isr, s_lp_rx_sem, false, SENSOR_HUB_LP_SYS_INFO_ID_QUEUE);
+        SENSOR_CHECK(ret == 0, "init lp rx queue failed", ESP_FAIL);
+        ESP_ERROR_CHECK(esp_amp_queue_intr_enable(&s_lp_rx_queue, SENSOR_HUB_LP_SW_INTR_ID_QUEUE));
+
+        BaseType_t task_created = xTaskCreate(sensor_hub_lp_rx_task, "sensor_lp_rx", 3072, NULL,
+                                              SENSOR_DEFAULT_TASK_PRIORITY, &s_lp_rx_task);
+        SENSOR_CHECK(task_created == pdPASS, "create lp rx task failed", ESP_ERR_NO_MEM);
+    }
+
+    return ESP_OK;
+}
+
+static int sensor_hub_lp_alloc_slot(const char *sensor_name, sensor_type_t type, uint8_t addr, uint32_t min_delay_ms)
+{
+    SENSOR_CHECK(s_lp_cfg_table != NULL, "lp cfg table not initialized", -1);
+
+    for (int i = 0; i < SENSOR_HUB_LP_MAX_SENSORS; i++) {
+        if (s_lp_cfg_table[i].active &&
+                s_lp_cfg_table[i].type == type &&
+                s_lp_cfg_table[i].addr == addr &&
+                strncmp(s_lp_cfg_table[i].name, sensor_name, SENSOR_HUB_LP_NAME_MAX_LEN) == 0) {
+            return i;
+        }
+    }
+
+    for (int i = 0; i < SENSOR_HUB_LP_MAX_SENSORS; i++) {
+        if (!s_lp_cfg_table[i].active) {
+            memset(&s_lp_cfg_table[i], 0, sizeof(s_lp_cfg_table[i]));
+            s_lp_cfg_table[i].active = 1;
+            s_lp_cfg_table[i].type = type;
+            s_lp_cfg_table[i].addr = addr;
+            s_lp_cfg_table[i].min_delay_ms = min_delay_ms;
+            strlcpy(s_lp_cfg_table[i].name, sensor_name, sizeof(s_lp_cfg_table[i].name));
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+static void sensor_hub_lp_free_slot(uint8_t slot)
+{
+    if (slot >= SENSOR_HUB_LP_MAX_SENSORS || s_lp_cfg_table == NULL) {
+        return;
+    }
+
+    memset(&s_lp_cfg_table[slot], 0, sizeof(s_lp_cfg_table[slot]));
+}
+
+static esp_err_t sensor_hub_lp_i2c_ensure_initialized(const sensor_config_t *config)
+{
+    if (s_lp_i2c_initialized) {
+        return ESP_OK;
+    }
+
+    lp_core_i2c_cfg_t i2c_cfg = LP_CORE_I2C_DEFAULT_CONFIG();
+
+    if (config != NULL) {
+        if (config->lp_i2c_clk_hz != 0) {
+            i2c_cfg.i2c_timing_cfg.clk_speed_hz = config->lp_i2c_clk_hz;
+        }
+
+        if (config->lp_i2c_sda_pullup_en || config->lp_i2c_scl_pullup_en) {
+            i2c_cfg.i2c_pin_cfg.sda_pullup_en = config->lp_i2c_sda_pullup_en;
+            i2c_cfg.i2c_pin_cfg.scl_pullup_en = config->lp_i2c_scl_pullup_en;
+        }
+    }
+
+    SENSOR_CHECK(ESP_OK == lp_core_i2c_master_init(LP_I2C_NUM_0, &i2c_cfg), "init lp i2c failed", ESP_FAIL);
+    s_lp_i2c_initialized = true;
+    return ESP_OK;
+}
+
+static esp_err_t sensor_hub_lp_subcore_ensure_started(const sensor_config_t *config)
+{
+    if (s_lp_subcore_started) {
+        return ESP_OK;
+    }
+
+    SENSOR_CHECK(esp_amp_init() == 0, "esp amp init failed", ESP_FAIL);
+    SENSOR_CHECK(ESP_OK == sensor_hub_lp_i2c_ensure_initialized(config), "init lp i2c failed", ESP_FAIL);
+    SENSOR_CHECK(ESP_OK == sensor_hub_lp_transport_init(), "init lp transport failed", ESP_FAIL);
+    SENSOR_CHECK(ESP_OK == esp_amp_load_sub(subcore_sensor_hub_lp_detect_bin_start), "load lp subcore failed", ESP_FAIL);
+    SENSOR_CHECK(0 == esp_amp_start_subcore(), "start lp subcore failed", ESP_FAIL);
+
+    uint32_t ready_bits = esp_amp_event_wait(SENSOR_HUB_LP_EVENT_READY, true, true, pdMS_TO_TICKS(3000));
+    SENSOR_CHECK((ready_bits & SENSOR_HUB_LP_EVENT_READY) == SENSOR_HUB_LP_EVENT_READY, "wait lp subcore ready timeout", ESP_ERR_TIMEOUT);
+
+    s_lp_subcore_started = true;
+    return ESP_OK;
 }
 
 static inline esp_err_t sensor_take_event_bit(uint32_t *p_bit)
@@ -345,11 +537,18 @@ esp_err_t iot_sensor_create(const char *sensor_name, const sensor_config_t *conf
         return ESP_ERR_NOT_SUPPORTED;
     }
 
+    if (config_copy.enable_amp && config_copy.mode != MODE_POLLING) {
+        ESP_LOGE(TAG, "AMP sensor only supports polling mode");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
     // Set Sensor Abstraction Layer Information
     _iot_sensor_t *sensor = (_iot_sensor_t *)calloc(1, sizeof(_iot_sensor_t));
     SENSOR_CHECK(sensor != NULL, "calloc node failed", ESP_ERR_NO_MEM);
     sensor->type = config_copy.type;
     sensor->bus = config_copy.bus;
+    sensor->enable_amp = config_copy.enable_amp;
+    sensor->amp_slot = SENSOR_HUB_LP_MAX_SENSORS;
     sensor->name = sensor_name;
     sensor->addr = config_copy.addr;
     sensor->min_delay = config_copy.min_delay;
@@ -357,23 +556,37 @@ esp_err_t iot_sensor_create(const char *sensor_name, const sensor_config_t *conf
     sensor->mode = config_copy.mode;
     sensor->impl = sensor_find_impl(sensor->type);
     sprintf(sensor->event_base, "%s_%x", sensor_name, config->addr);
-    SENSOR_CHECK_GOTO(sensor->impl != NULL && sensor->event_base != NULL, "no driver found !!", cleanup_sensor);
+    SENSOR_CHECK_GOTO(sensor->event_base != NULL, "event base create failed", cleanup_sensor);
+    if (!sensor->enable_amp) {
+        SENSOR_CHECK_GOTO(sensor->impl != NULL, "no driver found !!", cleanup_sensor);
+    }
 
-    // create a new sensor
-    sensor->driver_handle = sensor->impl->create(sensor->bus, sensor->name, sensor->addr);
-    SENSOR_CHECK_GOTO(sensor->driver_handle != NULL, "sensor create failed", cleanup_sensor);
-    // config sensor work mode, not supported case will be skipped
-    ret = sensor->impl->control(sensor->driver_handle, COMMAND_SET_MODE, (void *)(config_copy.mode));
-    SENSOR_CHECK_GOTO(ESP_OK == ret || ESP_ERR_NOT_SUPPORTED == ret, "set sensor mode failed !!", cleanup_sensor);
-    /*config sensor measuring range, not supported case will be skipped*/
-    ret = sensor->impl->control(sensor->driver_handle, COMMAND_SET_RANGE, (void *)(config_copy.range));
-    SENSOR_CHECK_GOTO(ESP_OK == ret || ESP_ERR_NOT_SUPPORTED == ret, "set sensor range failed !!", cleanup_sensor);
-    /*config sensor work mode, not supported case will be skipped*/
-    ret = sensor->impl->control(sensor->driver_handle, COMMAND_SET_ODR, (void *)(config_copy.min_delay));
-    SENSOR_CHECK_GOTO(ESP_OK == ret || ESP_ERR_NOT_SUPPORTED == ret, "set sensor odr failed !!", cleanup_sensor);
-    /*test if sensor is valid, can not be skipped*/
-    ret = sensor->impl->control(sensor->driver_handle, COMMAND_SELF_TEST, NULL);
-    SENSOR_CHECK_GOTO(ret == ESP_OK, "sensor test failed !!", cleanup_sensor);
+    if (sensor->enable_amp) {
+        int slot = -1;
+        ret = sensor_hub_lp_subcore_ensure_started(&config_copy);
+        SENSOR_CHECK_GOTO(ret == ESP_OK, "amp sensor create failed", cleanup_sensor);
+
+        slot = sensor_hub_lp_alloc_slot(sensor->name, sensor->type, sensor->addr, sensor->min_delay);
+        SENSOR_CHECK_GOTO(slot >= 0, "alloc lp sensor slot failed", cleanup_sensor);
+        sensor->amp_slot = slot;
+        s_lp_sensor_map[slot] = sensor;
+    } else {
+        // create a new sensor
+        sensor->driver_handle = sensor->impl->create(sensor->bus, sensor->name, sensor->addr);
+        SENSOR_CHECK_GOTO(sensor->driver_handle != NULL, "sensor create failed", cleanup_sensor);
+        // config sensor work mode, not supported case will be skipped
+        ret = sensor->impl->control(sensor->driver_handle, COMMAND_SET_MODE, (void *)(config_copy.mode));
+        SENSOR_CHECK_GOTO(ESP_OK == ret || ESP_ERR_NOT_SUPPORTED == ret, "set sensor mode failed !!", cleanup_sensor);
+        /*config sensor measuring range, not supported case will be skipped*/
+        ret = sensor->impl->control(sensor->driver_handle, COMMAND_SET_RANGE, (void *)(config_copy.range));
+        SENSOR_CHECK_GOTO(ESP_OK == ret || ESP_ERR_NOT_SUPPORTED == ret, "set sensor range failed !!", cleanup_sensor);
+        /*config sensor work mode, not supported case will be skipped*/
+        ret = sensor->impl->control(sensor->driver_handle, COMMAND_SET_ODR, (void *)(config_copy.min_delay));
+        SENSOR_CHECK_GOTO(ESP_OK == ret || ESP_ERR_NOT_SUPPORTED == ret, "set sensor odr failed !!", cleanup_sensor);
+        /*test if sensor is valid, can not be skipped*/
+        ret = sensor->impl->control(sensor->driver_handle, COMMAND_SELF_TEST, NULL);
+        SENSOR_CHECK_GOTO(ret == ESP_OK, "sensor test failed !!", cleanup_sensor);
+    }
 
     /*create a default event group if have not created*/
     if (s_event_group == NULL) {
@@ -383,30 +596,32 @@ esp_err_t iot_sensor_create(const char *sensor_name, const sensor_config_t *conf
     }
 
     // add sensor to list, event_bit will be set internal
-    ret = sensor_add_node(sensor);
-    SENSOR_CHECK_GOTO(ret == ESP_OK, "add sensor node to list failed !!", cleanup_sensor);
+    if (!sensor->enable_amp) {
+        ret = sensor_add_node(sensor);
+        SENSOR_CHECK_GOTO(ret == ESP_OK, "add sensor node to list failed !!", cleanup_sensor);
 
-    switch (sensor->mode) {
-    case MODE_POLLING:
-        sensor->timer_handle = sensor_polling_mode_init(sensor->name, sensor->min_delay, (void *)(sensor->event_bit));
-        SENSOR_CHECK_GOTO(sensor->timer_handle != NULL, "sensor timer create failed", cleanup_sensor_node);
-        break;
+        switch (sensor->mode) {
+        case MODE_POLLING:
+            sensor->timer_handle = sensor_polling_mode_init(sensor->name, sensor->min_delay, (void *)(sensor->event_bit));
+            SENSOR_CHECK_GOTO(sensor->timer_handle != NULL, "sensor timer create failed", cleanup_sensor_node);
+            break;
 
-    case MODE_INTERRUPT:
-        ret = sensor_intr_mode_init(config_copy.intr_pin, config_copy.intr_type);
-        SENSOR_CHECK_GOTO(ret == ESP_OK, "sensor intr init failed", cleanup_sensor_node);
-        sensor->isr_state = ISR_STATE_INITIALIZED;
-        break;
+        case MODE_INTERRUPT:
+            ret = sensor_intr_mode_init(config_copy.intr_pin, config_copy.intr_type);
+            SENSOR_CHECK_GOTO(ret == ESP_OK, "sensor intr init failed", cleanup_sensor_node);
+            sensor->isr_state = ISR_STATE_INITIALIZED;
+            break;
 
-    default:
-        break;
-    }
+        default:
+            break;
+        }
 
-    /*create a default sensor task if not created*/
-    if (s_sensor_task_handle == NULL) {
-        BaseType_t task_created = xTaskCreatePinnedToCore(sensor_default_task, SENSOR_DEFAULT_TASK_NAME, SENSOR_DEFAULT_TASK_STACK_SIZE,
-                                                          ((void *)(&s_sensor_slist_head)), SENSOR_DEFAULT_TASK_PRIORITY, &s_sensor_task_handle, SENSOR_DEFAULT_TASK_CORE_ID);
-        SENSOR_CHECK_GOTO(task_created == pdPASS, "create default sensor task failed", cleanup_sensor_node);
+        /*create a default sensor task if not created*/
+        if (s_sensor_task_handle == NULL) {
+            BaseType_t task_created = xTaskCreatePinnedToCore(sensor_default_task, SENSOR_DEFAULT_TASK_NAME, SENSOR_DEFAULT_TASK_STACK_SIZE,
+                                                              ((void *)(&s_sensor_slist_head)), SENSOR_DEFAULT_TASK_PRIORITY, &s_sensor_task_handle, SENSOR_DEFAULT_TASK_CORE_ID);
+            SENSOR_CHECK_GOTO(task_created == pdPASS, "create default sensor task failed", cleanup_sensor_node);
+        }
     }
     sensor->task_handle = s_sensor_task_handle;
 
@@ -438,7 +653,13 @@ cleanup_sensor:
     *p_sensor_handle = NULL;
     return ret;
 cleanup_sensor_node:
-    sensor_remove_node(sensor);
+    if (!sensor->enable_amp) {
+        sensor_remove_node(sensor);
+    }
+    if (sensor->enable_amp && sensor->amp_slot < SENSOR_HUB_LP_MAX_SENSORS) {
+        s_lp_sensor_map[sensor->amp_slot] = NULL;
+        sensor_hub_lp_free_slot(sensor->amp_slot);
+    }
     free(sensor);
     *p_sensor_handle = NULL;
     return ret;
@@ -448,6 +669,21 @@ esp_err_t iot_sensor_stop(sensor_handle_t sensor_handle)
 {
     SENSOR_CHECK(sensor_handle != NULL, "sensor handle can not be NULL", ESP_ERR_INVALID_ARG);
     _iot_sensor_t *sensor = (_iot_sensor_t *)sensor_handle;
+
+    if (sensor->enable_amp) {
+        if (s_lp_cfg_table != NULL && sensor->amp_slot < SENSOR_HUB_LP_MAX_SENSORS) {
+            s_lp_cfg_table[sensor->amp_slot].running = 0;
+        }
+
+        sensor_data_t sensor_data = { 0 };
+        sensor_data.sensor_type = sensor->type;
+        sensor_data.sensor_name = sensor->name;
+        sensor_data.sensor_addr = sensor->addr;
+        sensor_data.timestamp = sensor_get_timestamp_us();
+        sensor_data.event_id = SENSOR_STOPED;
+        return sensors_event_post(sensor->event_base, sensor_data.event_id, &sensor_data, sizeof(sensor_data), portMAX_DELAY);
+    }
+
     SENSOR_CHECK(sensor->timer_handle != NULL, "sensor timmer handle can not be NULL", ESP_ERR_INVALID_ARG);
 
     switch (sensor->mode) {
@@ -492,6 +728,21 @@ esp_err_t iot_sensor_start(sensor_handle_t sensor_handle)
 {
     SENSOR_CHECK(sensor_handle != NULL, "sensor handle can not be NULL", ESP_ERR_INVALID_ARG);
     _iot_sensor_t *sensor = (_iot_sensor_t *)sensor_handle;
+
+    if (sensor->enable_amp) {
+        if (s_lp_cfg_table != NULL && sensor->amp_slot < SENSOR_HUB_LP_MAX_SENSORS) {
+            s_lp_cfg_table[sensor->amp_slot].running = 1;
+        }
+
+        sensor_data_t sensor_data = { 0 };
+        sensor_data.sensor_type = sensor->type;
+        sensor_data.sensor_name = sensor->name;
+        sensor_data.sensor_addr = sensor->addr;
+        sensor_data.timestamp = sensor_get_timestamp_us();
+        sensor_data.event_id = SENSOR_STARTED;
+        return sensors_event_post(sensor->event_base, sensor_data.event_id, &sensor_data, sizeof(sensor_data), portMAX_DELAY);
+    }
+
     SENSOR_CHECK(sensor->timer_handle != NULL, "sensor timmer_handle/isr_state can not be NULL", ESP_ERR_INVALID_ARG);
 
     switch (sensor->mode) {
@@ -536,6 +787,17 @@ esp_err_t iot_sensor_delete(sensor_handle_t p_sensor_handle)
 {
     SENSOR_CHECK(p_sensor_handle != NULL, "sensor handle can not be NULL", ESP_ERR_INVALID_ARG);
     _iot_sensor_t *sensor = (_iot_sensor_t *)(p_sensor_handle);
+    uint8_t amp_slot = sensor->amp_slot;
+
+    if (sensor->enable_amp) {
+        if (amp_slot < SENSOR_HUB_LP_MAX_SENSORS) {
+            s_lp_sensor_map[amp_slot] = NULL;
+            sensor_hub_lp_free_slot(amp_slot);
+        }
+        free(sensor);
+        return ESP_OK;
+    }
+
     SENSOR_CHECK(sensor->timer_handle != NULL, "sensor timmer handle can not be NULL", ESP_ERR_INVALID_ARG);
 
     switch (sensor->mode) {
@@ -569,6 +831,10 @@ esp_err_t iot_sensor_delete(sensor_handle_t p_sensor_handle)
 
     ret = sensor->impl->remove(&sensor->driver_handle);
     SENSOR_CHECK(ret == ESP_OK && sensor->driver_handle == NULL, "sensor driver delete failed", ret);
+
+    if (sensor->enable_amp && amp_slot < SENSOR_HUB_LP_MAX_SENSORS) {
+        sensor_hub_lp_free_slot(amp_slot);
+    }
 
     /*free the resource then set handle to NULL*/
     free(sensor);

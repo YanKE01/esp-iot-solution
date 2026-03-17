@@ -1,16 +1,18 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <stdio.h>
 #include <inttypes.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "unity.h"
 #include "iot_sensor_hub.h"
 #include "esp_log.h"
+#include "esp_amp.h"
 
 #define TEST_MEMORY_LEAK_THRESHOLD (-460)
 
@@ -31,6 +33,9 @@ static sensor_event_handler_instance_t sht3x_handler_handle1 = NULL;
 static sensor_event_handler_instance_t sht3x_handler_handle2 = NULL;
 static sensor_event_handler_instance_t mpu6050_handler_handle = NULL;
 static sensor_event_handler_instance_t bh1750_handler_handle = NULL;
+static sensor_event_handler_instance_t lp_handler_handle = NULL;
+static int s_lp_temp_event_count = 0;
+static int s_lp_humi_event_count = 0;
 
 static const char* TAG = "sensor_hub_test";
 
@@ -52,6 +57,9 @@ static void sensor_event_handler(void *handler_args, esp_event_base_t base, int3
                  sensor_data->sensor_addr);
         break;
     case SENSOR_HUMI_DATA_READY:
+        if (strcmp(sensor_data->sensor_name, "lp_fake_humiture") == 0) {
+            s_lp_humi_event_count++;
+        }
         ESP_LOGI(TAG, "Timestamp = %llu - %s_0x%x HUMI_DATA_READY - "
                  "humiture=%.2f",
                  sensor_data->timestamp,
@@ -60,6 +68,9 @@ static void sensor_event_handler(void *handler_args, esp_event_base_t base, int3
                  sensor_data->humidity);
         break;
     case SENSOR_TEMP_DATA_READY:
+        if (strcmp(sensor_data->sensor_name, "lp_fake_humiture") == 0) {
+            s_lp_temp_event_count++;
+        }
         ESP_LOGI(TAG, "Timestamp = %llu - %s_0x%x TEMP_DATA_READY - "
                  "temperature=%.2f\n",
                  sensor_data->timestamp,
@@ -128,7 +139,7 @@ TEST_CASE("SENSOR_HUB test for virtual sensors", "[virtual sensors][iot]")
 
     sensor_config_t virtual_sht3x_config1 = {
         .bus = i2c_bus,
-        .addr = 0x44,
+        .addr = 0x68,
         .type = HUMITURE_ID,
         .mode = MODE_POLLING,
         .min_delay = 100,
@@ -197,6 +208,27 @@ TEST_CASE("SENSOR_HUB test for virtual sensors", "[virtual sensors][iot]")
 TEST_CASE("SENSOR_HUB scan driver", "[virtual sensors][drivers][iot]")
 {
     iot_sensor_scan();
+}
+
+TEST_CASE("SENSOR_HUB lp detect registration", "[lp][iot]")
+{
+    sensor_handle_t lp_handle = NULL;
+    sensor_config_t lp_config = {
+        .enable_amp = true,
+        .addr = 0x68,
+        .type = HUMITURE_ID,
+        .mode = MODE_POLLING,
+        .min_delay = 1000,
+    };
+
+    s_lp_temp_event_count = 0;
+    s_lp_humi_event_count = 0;
+    TEST_ASSERT_EQUAL(ESP_OK, iot_sensor_create("lp_fake_humiture", &lp_config, &lp_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, iot_sensor_handler_register(lp_handle, sensor_event_handler, &lp_handler_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, iot_sensor_start(lp_handle));
+    while (1) {
+        vTaskDelay(1000 / portTICK_RATE_MS);
+    }
 }
 
 static void check_leak(size_t before_free, size_t after_free, const char *type)

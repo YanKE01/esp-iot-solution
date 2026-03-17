@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,6 +7,7 @@
 #ifndef _IOT_SENSOR_HUB_H_
 #define _IOT_SENSOR_HUB_H_
 
+#include <stdbool.h>
 #include "esp_err.h"
 
 #ifdef CONFIG_SENSOR_INCLUDED_IMU
@@ -48,11 +49,15 @@ typedef struct {
  */
 typedef struct {
     bus_handle_t bus;     /*!< i2c/spi bus handle*/
+    bool enable_amp;      /*!< create sensor through LP AMP path */
     uint8_t addr;         /*!< set addr of sensor*/
     sensor_type_t type;   /*!< sensor type */
     sensor_mode_t mode;   /*!< set acquire mode detiled in sensor_mode_t*/
     sensor_range_t range; /*!< set measuring range*/
     uint32_t min_delay;   /*!< set minimum acquisition interval*/
+    uint32_t lp_i2c_clk_hz; /*!< LP I2C clock, 0 uses default */
+    bool lp_i2c_sda_pullup_en; /*!< LP I2C SDA pullup, default true */
+    bool lp_i2c_scl_pullup_en; /*!< LP I2C SCL pullup, default true */
     int intr_pin;         /*!< set interrupt pin */
     int intr_type;        /*!< set interrupt type*/
 } sensor_config_t;

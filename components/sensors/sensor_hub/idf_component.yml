@@ -9,6 +9,10 @@ dependencies:
     public: true
     version: "1.*"
     override_path: "../../i2c_bus"
+  esp_amp:
+    override_path: "/home/yanke/project/esp-amp/components/esp_amp"
+    rules:
+      - if: target in ["esp32c5", "esp32c6"]
   idf: ">=4.4"
   cmake_utilities: "0.*"
 sbom:

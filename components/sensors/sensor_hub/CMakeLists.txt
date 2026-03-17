@@ -6,6 +6,6 @@ endif()
 
 idf_component_register(SRC_DIRS "." "hal"
                         INCLUDE_DIRS "include"
-                        REQUIRES "esp_event" "esp_timer"
+                        REQUIRES "esp_event" "esp_timer" "esp_amp" "ulp"
                         PRIV_REQUIRES ${PRIV_REQ}
                         LDFRAGMENTS linker.lf)
