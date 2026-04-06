@@ -3,6 +3,7 @@ set(SRC_FILES
     "port/esp/esp_hal_serial.cpp"
     "port/esp/esp_hal_gpio.cpp"
     "port/esp/esp_hal_bldc_3pwm.cpp"
+    "port/esp/esp_hal_current_sense.cpp"
     "port/esp/esp_app_fmath.cpp"
     "port/esp/esp_app_print.cpp"
     "port/angle_sensor/as5600.cpp"
