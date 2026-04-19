@@ -1,0 +1,8 @@
+verision: "0.1.0"
+targets:
+  - esp32p4
+dependencies:
+  idf:
+    version: '>=5.5'
+  espressif/opencv: =4.10.0~2
+  espressif/esp-dl: =3.3.1
